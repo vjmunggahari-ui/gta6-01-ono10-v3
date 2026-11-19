@@ -1,16 +1,64 @@
-// Solmar Bay — the city itself: blocks, buildings, trees, boats, parked cars.
+// Solmar Bay (v5) — the city itself: districts, blocks, buildings, trees,
+// boats, parked cars, lamps and piers.
 // One job: build the same city from the same seed, every time.
+//
+// v5 vs v4: buildings carry their district and a storey count (downtown
+// towers over the suburbs), props include lamps and benches, the marina has
+// moored slips, and collisions run against a coarse grid index instead of
+// scanning every building for every body. A body whose centre lands inside
+// a building is pushed out along the shallowest side (v4 skipped it).
 
-import { BEACH_TOP, MARINA_LEFT, ROADS_X, ROADS_Y, ROAD_HALF, WORLD } from './config.js';
-import { mulberry32, pick, range } from './random.js';
+import { BEACH_TOP, DISTRICTS, MARINA_LEFT, PIER, PLACES, ROADS_X, ROADS_Y, ROAD_HALF, SEA_TOP, WORLD } from './config.js';
+import { int, mulberry32, pick, range } from './random.js';
 
-const BUILDING_COLORS = ['#c97b4a', '#d99a5b', '#7d9bb5', '#8fae8b', '#b56a6a', '#a08bb5', '#c9a86a'];
+const PALETTES = {
+  city: ['#7d9bb5', '#8fae8b', '#a08bb5', '#c9a86a', '#6a8a9b'],
+  brick: ['#c97b4a', '#b56a6a', '#d99a5b', '#a86a4a'],
+  suburb: ['#d9c9a0', '#b5c9a0', '#c9b5a0', '#e8e6da'],
+  industrial: ['#8a8f98', '#6a7078', '#7a6a5a', '#5a6a7a'],
+  marina: ['#e8e6da', '#a0c9d9', '#d9d9c9'],
+  sand: ['#d9c27a'],
+};
 const CAR_COLORS = ['#d94f3d', '#3d7dd9', '#e8c33a', '#4ad97b', '#e8e6da', '#7a5fd9', '#e07b39'];
+const GRID_CELL = 256;
+
+export function districtAt(x, y) {
+  for (const d of DISTRICTS) {
+    if (x >= d.x0 && x < d.x1 && y >= d.y0 && y < d.y1) return d;
+  }
+  return DISTRICTS[DISTRICTS.length - 1];
+}
+
+function gridKey(cx, cy) {
+  return `${cx},${cy}`;
+}
+
+// Index buildings into coarse grid cells so collideBuildings only tests the
+// handful of buildings near a body instead of all of them.
+function indexBuildings(buildings) {
+  const grid = new Map();
+  buildings.forEach((b, i) => {
+    const x0 = Math.floor(b.x / GRID_CELL);
+    const x1 = Math.floor((b.x + b.w) / GRID_CELL);
+    const y0 = Math.floor(b.y / GRID_CELL);
+    const y1 = Math.floor((b.y + b.h) / GRID_CELL);
+    for (let cx = x0; cx <= x1; cx += 1) {
+      for (let cy = y0; cy <= y1; cy += 1) {
+        const k = gridKey(cx, cy);
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(i);
+      }
+    }
+  });
+  return grid;
+}
 
 export function buildWorld(seed) {
   const rng = mulberry32(seed);
   const buildings = [];
   const trees = [];
+  const lamps = [];
+  const benches = [];
   // One or two buildings per block, kept off the roads, the beach and the marina.
   for (let ix = 0; ix < ROADS_X.length - 1; ix += 1) {
     for (let iy = 0; iy < ROADS_Y.length - 1; iy += 1) {
@@ -21,7 +69,9 @@ export function buildWorld(seed) {
       if (x1 <= x0 + 60 || y1 <= y0 + 60) continue;
       if (x0 > MARINA_LEFT - 100) continue;
       if (y0 > BEACH_TOP - 100) continue;
-      const count = rng() < 0.6 ? 2 : 1;
+      const district = districtAt((x0 + x1) / 2, (y0 + y1) / 2);
+      const palette = PALETTES[district.palette] || PALETTES.city;
+      const count = district.density >= 2 && rng() < 0.6 ? 2 : 1;
       for (let n = 0; n < count; n += 1) {
         const w = range(rng, 90, Math.min(220, (x1 - x0) / count - 20));
         const h = range(rng, 80, Math.min(200, y1 - y0 - 20));
@@ -32,11 +82,13 @@ export function buildWorld(seed) {
           y: Math.round(by),
           w: Math.round(w),
           h: Math.round(h),
-          color: pick(rng, BUILDING_COLORS),
+          color: pick(rng, palette),
           roof: rng() < 0.18 ? 'pool' : rng() < 0.3 ? 'garden' : 'flat',
+          district: district.id,
+          stories: district.id === 'downtown' ? int(rng, 6, 18) : district.id === 'oldtown' ? int(rng, 2, 4) : int(rng, 1, 3),
         });
       }
-      // Trees along the block edges.
+      // Trees along the block edges, plus a bench or two where people linger.
       const treeCount = 3 + Math.floor(rng() * 4);
       for (let t = 0; t < treeCount; t += 1) {
         trees.push({
@@ -45,9 +97,21 @@ export function buildWorld(seed) {
           r: Math.round(range(rng, 9, 16)),
         });
       }
+      if (rng() < 0.5) {
+        benches.push({ x: Math.round(range(rng, x0, x1)), y: Math.round(range(rng, y0, y1)), angle: rng() < 0.5 ? 0 : Math.PI / 2 });
+      }
     }
   }
-  // Boats in the marina, east of the last road.
+  // Street lamps at every intersection, on alternating corners.
+  for (const rx of ROADS_X) {
+    for (const ry of ROADS_Y) {
+      lamps.push({
+        x: rx + (ROAD_HALF + 8) * (lamps.length % 2 === 0 ? 1 : -1),
+        y: ry + (ROAD_HALF + 8) * (lamps.length % 3 === 0 ? 1 : -1),
+      });
+    }
+  }
+  // Boats moored in slips in the marina, east of the last road.
   const boats = [];
   for (let i = 0; i < 6; i += 1) {
     boats.push({
@@ -55,6 +119,7 @@ export function buildWorld(seed) {
       y: Math.round(range(rng, 200, BEACH_TOP - 200)),
       angle: (rng() - 0.5) * 0.4,
       color: pick(rng, CAR_COLORS),
+      slip: i,
     });
   }
   // Parked cars along the roads, waiting to be borrowed.
@@ -71,14 +136,12 @@ export function buildWorld(seed) {
       color: pick(rng, CAR_COLORS),
     });
   }
-  const places = {
-    downtown: { x: 1320, y: 760 },
-    marina: { x: 2980, y: 1220 },
-    docks: { x: 2920, y: 1680 },
-    hospital: { x: 320, y: 1220 },
-    safehouse: { x: 320, y: 300 },
+  return {
+    buildings, trees, lamps, benches, boats, parked,
+    places: { ...PLACES },
+    pier: { ...PIER },
+    grid: indexBuildings(buildings),
   };
-  return { buildings, trees, boats, parked, places };
 }
 
 // The road helpers take either a body ({x, y}) or plain (x, y) coordinates.
@@ -98,6 +161,14 @@ export function isOnRoad(a, b) {
   return false;
 }
 
+export function isOnBeach(x, y) {
+  return y >= BEACH_TOP && y < SEA_TOP;
+}
+
+export function isInSea(x, y) {
+  return y >= SEA_TOP;
+}
+
 export function roadAngleAt(a, b) {
   const { x, y } = pointOf(a, b);
   // The angle of the nearest road centreline: vertical roads run north-south.
@@ -105,17 +176,11 @@ export function roadAngleAt(a, b) {
   let angle = 0;
   for (const rx of ROADS_X) {
     const d = Math.abs(x - rx);
-    if (d < best) {
-      best = d;
-      angle = Math.PI / 2;
-    }
+    if (d < best) { best = d; angle = Math.PI / 2; }
   }
   for (const ry of ROADS_Y) {
     const d = Math.abs(y - ry);
-    if (d < best) {
-      best = d;
-      angle = 0;
-    }
+    if (d < best) { best = d; angle = 0; }
   }
   return angle;
 }
@@ -127,33 +192,76 @@ export function snapToRoad(a, b) {
   let point = { x, y };
   for (const rx of ROADS_X) {
     const d = Math.abs(x - rx);
-    if (d < best) {
-      best = d;
-      point = { x: rx, y };
-    }
+    if (d < best) { best = d; point = { x: rx, y }; }
   }
   for (const ry of ROADS_Y) {
     const d = Math.abs(y - ry);
-    if (d < best) {
-      best = d;
-      point = { x, y: ry };
-    }
+    if (d < best) { best = d; point = { x, y: ry }; }
   }
   return point;
 }
 
+// A random point on a random road, for spawns that must start on tarmac.
+export function randomRoadPoint(rng) {
+  if (rng() < 0.5) {
+    return { x: pick(rng, ROADS_X), y: range(rng, 120, WORLD.h - 320) };
+  }
+  return { x: range(rng, 120, WORLD.w - 120), y: pick(rng, ROADS_Y) };
+}
+
+// The grid cells a body may touch: its own cell plus the eight around it,
+// so a body straddling a cell edge still tests the buildings next door.
+function nearbyCells(world, x, y) {
+  const cx = Math.floor(x / GRID_CELL);
+  const cy = Math.floor(y / GRID_CELL);
+  const out = [];
+  for (let ox = -1; ox <= 1; ox += 1) {
+    for (let oy = -1; oy <= 1; oy += 1) {
+      const cell = world.grid.get(gridKey(cx + ox, cy + oy));
+      if (cell) out.push(...cell);
+    }
+  }
+  return out;
+}
+
+// True when (x, y) sits inside any building. Used by spawns and missions.
+export function pointInBuilding(world, x, y) {
+  for (const i of nearbyCells(world, x, y)) {
+    const b = world.buildings[i];
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return true;
+  }
+  return false;
+}
+
 // Pushes a body out of any building it overlaps; true when it pushed.
+// Only the grid cells around the body are tested now, not the whole city.
+// A body whose centre is inside a building is pushed out along the
+// shallowest side — v4 skipped that case entirely and left it stuck.
 export function collideBuildings(world, body) {
   if (!Number.isFinite(body.x) || !Number.isFinite(body.y)) return false;
   const r = body.radius || 12;
   let hit = false;
-  for (const b of world.buildings) {
+  for (const i of nearbyCells(world, body.x, body.y)) {
+    const b = world.buildings[i];
     const cx = Math.max(b.x, Math.min(body.x, b.x + b.w));
     const cy = Math.max(b.y, Math.min(body.y, b.y + b.h));
     const dx = body.x - cx;
     const dy = body.y - cy;
     const d2 = dx * dx + dy * dy;
-    if (d2 >= r * r || d2 < 0.001) continue;
+    if (d2 < 0.001) {
+      const left = body.x - b.x;
+      const right = b.x + b.w - body.x;
+      const top = body.y - b.y;
+      const bottom = b.y + b.h - body.y;
+      const min = Math.min(left, right, top, bottom);
+      if (min === left) body.x = b.x - r;
+      else if (min === right) body.x = b.x + b.w + r;
+      else if (min === top) body.y = b.y - r;
+      else body.y = b.y + b.h + r;
+      hit = true;
+      continue;
+    }
+    if (d2 >= r * r) continue;
     const d = Math.sqrt(d2);
     body.x = cx + (dx / d) * r;
     body.y = cy + (dy / d) * r;

@@ -1,8 +1,36 @@
 {
+  "game": "Solmar Bay",
+  "version": 2,
+  "seed": 1337,
+  "size": { "width": 1280, "height": 720 },
   "shots": [
-    { "file": "1-cover.jpg", "query": "?shot=cover", "label": "Three-star chase on the First Fare, noon" },
-    { "file": "2-roam.jpg", "query": "?shot=roam", "label": "On foot downtown, morning" },
-    { "file": "3-mission.jpg", "query": "?shot=mission", "label": "Hot Package run to the East Docks, dusk" },
-    { "file": "4-chase.jpg", "query": "?shot=chase", "label": "Bay Getaway at night, four stars" }
+    {
+      "id": "cover",
+      "file": "shots/1-cover.png",
+      "query": "?shot=cover",
+      "label": "Three-star chase on the First Fare, noon",
+      "description": "Jax drives the fare's yellow car east through downtown at noon, three Solmar PD cruisers closing in behind, wanted stars lit and the minimap showing the marina drop-off."
+    },
+    {
+      "id": "roam",
+      "file": "shots/2-roam.png",
+      "query": "?shot=roam",
+      "label": "On foot downtown, morning",
+      "description": "Jax on foot in downtown Solmar at dawn, pedestrians on the sidewalks, parked cars waiting to be borrowed, the whole city open before the first job."
+    },
+    {
+      "id": "mission",
+      "file": "shots/3-mission.png",
+      "query": "?shot=mission",
+      "label": "Hot Package run to the East Docks, dusk",
+      "description": "Jax runs the hot package south in a red car at dusk, two stars on the tail, the docks ahead and the waypoint beacon marking the drop-off."
+    },
+    {
+      "id": "chase",
+      "file": "shots/4-chase.png",
+      "query": "?shot=chase",
+      "label": "Bay Getaway at night, four stars",
+      "description": "Jax flees north through the night at four stars, headlights on and four PD cruisers in pursuit, the safehouse beacon waiting in the north-west."
+    }
   ]
 }

@@ -1,15 +1,22 @@
-// Solmar Bay — the game itself: state, the fixed-step loop, save, screens.
+// Solmar Bay (v5) — the game itself: state, the fixed-step loop, save, screens.
 // One job: own the game object and run it, in play and in screenshot poses.
+//
+// v5 vs v4: the player comes from the entities factory instead of an inline
+// object, wanted decay runs through entities.stepWanted instead of a second
+// inline copy, the camera and the day length read their config values
+// instead of hardcoded numbers, getting busted fails the active job, the
+// tab hiding itself pauses the game, and the save records total earnings
+// alongside cash and jobs so the title screen can show real progress.
 
-import { CAR, PED_COUNT, PLAYER, SAVE_KEY, SEEDS, STEP, TRAFFIC_COUNT, VIEW, WANTED } from './config.js';
+import { CAMERA, DAY, ECONOMY, PED_COUNT, PLAYER, SAVE_KEY, SEEDS, STEP, TRAFFIC_COUNT, VIEW } from './config.js';
 import { mulberry32 } from './random.js';
 import { buildWorld } from './world.js';
 import { Input } from './input.js';
 import { SoundFX } from './audio.js';
-import { spawnPeds, spawnTraffic, stepPeds, stepPlayer, stepPolice, stepTraffic } from './entities.js';
+import { makePlayer, spawnPeds, spawnTraffic, stepPeds, stepPlayer, stepPolice, stepTraffic, stepWanted } from './entities.js';
 import { createMissions } from './missions.js';
 import { drawFrame } from './render.js';
-import { stageShot } from './shots.js';
+import { SHOT_NAMES, stageShot } from './shots.js';
 
 export class Game {
   constructor(canvas) {
@@ -41,6 +48,7 @@ export class Game {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
         cash: this.player.cash,
         done: this.missions.done,
+        earned: this.missions.earned,
         best: Math.max(this.save ? this.save.best || 0 : 0, this.player.cash),
       }));
     } catch {
@@ -57,19 +65,9 @@ export class Game {
     this.lastCrimeT = -999;
     this.lastCrime = '';
     this.heat = 0;
-    this.player = {
-      x: this.world.places.downtown.x,
-      y: this.world.places.downtown.y + 90,
-      angle: 0,
-      speed: 0,
-      radius: PLAYER.radius,
-      onFoot: true,
-      car: null,
-      health: PLAYER.health,
-      cash: this.save ? this.save.cash : 0,
-      punchT: 0,
-      moving: false,
-    };
+    const start = this.world.places.downtown;
+    this.player = makePlayer(start.x, start.y + 90);
+    this.player.cash = this.save ? this.save.cash : ECONOMY.startCash;
     this.cars = spawnTraffic(this.world, this.rng, TRAFFIC_COUNT);
     this.peds = spawnPeds(this.world, this.rng, PED_COUNT);
     this.particles = [];
@@ -82,7 +80,7 @@ export class Game {
       }
     }
     this.camera = { x: 0, y: 0 };
-    this.updateCamera();
+    this.snapCamera();
   }
 
   message(text, color) {
@@ -91,11 +89,26 @@ export class Game {
     if (this.messages.length > 5) this.messages.shift();
   }
 
-  updateCamera() {
-    const tx = Math.max(0, Math.min(3200 - VIEW.w, this.player.x - VIEW.w / 2));
-    const ty = Math.max(0, Math.min(2400 - VIEW.h, this.player.y - VIEW.h / 2));
-    this.camera.x += (tx - this.camera.x) * 0.12;
-    this.camera.y += (ty - this.camera.y) * 0.12;
+  cameraTarget() {
+    return {
+      x: Math.max(0, Math.min(3200 - VIEW.w, this.player.x - VIEW.w / 2)),
+      y: Math.max(0, Math.min(2400 - VIEW.h, this.player.y - VIEW.h / 2)),
+    };
+  }
+
+  snapCamera() {
+    const t = this.cameraTarget();
+    this.camera.x = t.x;
+    this.camera.y = t.y;
+  }
+
+  updateCamera(dt) {
+    const t = this.cameraTarget();
+    // Exponential smoothing: the camera chases the player and settles,
+    // instead of snapping or lagging a fixed fraction per frame.
+    const k = 1 - Math.exp(-CAMERA.smoothing * (dt || 1 / 60));
+    this.camera.x += (t.x - this.camera.x) * k;
+    this.camera.y += (t.y - this.camera.y) * k;
   }
 
   busted(reason) {
@@ -104,9 +117,11 @@ export class Game {
     this.bustedReason = reason;
     this.sfx.busted();
     this.sfx.stopEngine();
+    this.sfx.stopSiren();
     const lost = Math.floor(this.player.cash * 0.25);
     this.player.cash -= lost;
     this.wanted = 0;
+    this.missions.onBusted();
     this.saveGame();
   }
 
@@ -125,13 +140,9 @@ export class Game {
   step(dt, input) {
     if (this.screen !== 'play') return;
     this.time += dt;
-    this.dayTime += dt / 300;
-    if (this.dayTime >= 1) this.dayTime = 0;
-    // Wanted stars cool off when the heat has been quiet a while.
-    const policeNear = this.cars.some((c) => c.kind === 'police' && Math.hypot(c.x - this.player.x, c.y - this.player.y) < 520);
-    if (this.time - this.lastCrimeT > 12 && !policeNear && this.wanted > 0) {
-      this.wanted = Math.max(0, this.wanted - WANTED.decayPerSec * dt);
-    }
+    this.dayTime += dt / DAY.lengthSec;
+    if (this.dayTime >= 1) this.dayTime -= 1;
+    stepWanted(this, dt);
     stepPlayer(this, dt, input);
     stepTraffic(this, dt);
     stepPeds(this, dt);
@@ -142,7 +153,7 @@ export class Game {
     for (const s of this.skid) s.t -= dt;
     this.skid = this.skid.filter((s) => s.t > 0);
     this.messages = this.messages.filter((m) => this.time - m.t < 4.5);
-    this.updateCamera();
+    this.updateCamera(dt);
     // Traffic that drove off the map's edge quietly respawns up the road.
     if (this.cars.length < TRAFFIC_COUNT + 1) {
       const fresh = spawnTraffic(this.world, this.rng, 1);
@@ -162,9 +173,25 @@ const params = new URLSearchParams(window.location.search);
 const shotName = params.get('shot');
 game.input.attach(window);
 game.input.attachMouse(canvas);
-game.input.onFirstGesture = () => game.sfx.init();
+game.input.onFirstGesture = () => {
+  game.sfx.init();
+  game.sfx.resume();
+  game.sfx.setMusicEnabled(true);
+};
+
+// Hiding the tab pauses the game instead of letting the city run on.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && game.screen === 'play' && !game.shot) {
+    game.screen = 'pause';
+    game.sfx.stopEngine();
+  }
+});
 
 if (shotName) {
+  if (!SHOT_NAMES.includes(shotName)) {
+    throw new Error(`unknown shot: ${shotName}`);
+  }
+  document.body.classList.add('shot-mode');
   game.shot = shotName;
   stageShot(shotName, game);
   game.render();
@@ -172,6 +199,8 @@ if (shotName) {
 } else {
   game.render();
 }
+
+window.__solmarGame = game;
 
 let last = performance.now();
 let acc = 0;
@@ -183,27 +212,27 @@ function frame(now) {
   if (!game.shot) {
     if (game.screen === 'title' || game.screen === 'pause' || game.screen === 'busted') game.time += frameDt;
     if (game.screen === 'title') {
-      if (game.input.hit('Enter')) {
+      if (game.input.actionHit('pause') || game.input.hit('Enter')) {
         game.screen = 'play';
         game.message('Welcome to Solmar Bay. Press M to take the first job.', '#ffb02e');
       }
     } else if (game.screen === 'busted') {
       if (game.input.hit('Enter')) game.respawn();
     } else if (game.screen === 'pause') {
-      if (game.input.hit('Escape')) game.screen = 'play';
+      if (game.input.actionHit('pause')) game.screen = 'play';
     } else if (game.screen === 'play') {
-      if (game.input.hit('Escape')) {
+      if (game.input.actionHit('pause')) {
         game.screen = 'pause';
         game.sfx.stopEngine();
       }
-      if (game.input.hit('m', 'M')) {
+      if (game.input.actionHit('mission')) {
         if (!game.missions.current) {
           const next = game.missions.nextAvailable();
           if (next) game.missions.start(next.id);
           else game.missions.startTaxi();
         }
       }
-      if (game.input.hit('h', 'H')) game.sfx.toggleMute();
+      if (game.input.actionHit('mute')) game.sfx.toggleMute();
       acc += frameDt;
       let guard = 0;
       while (acc >= STEP && guard < 8) {

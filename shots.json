@@ -1,0 +1,8 @@
+{
+  "shots": [
+    { "file": "1-cover.jpg", "query": "?shot=cover", "label": "Three-star chase on the First Fare, noon" },
+    { "file": "2-roam.jpg", "query": "?shot=roam", "label": "On foot downtown, morning" },
+    { "file": "3-mission.jpg", "query": "?shot=mission", "label": "Hot Package run to the East Docks, dusk" },
+    { "file": "4-chase.jpg", "query": "?shot=chase", "label": "Bay Getaway at night, four stars" }
+  ]
+}

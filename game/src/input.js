@@ -1,10 +1,11 @@
-// Solmar Bay (v5) — keyboard, mouse and gamepad, as one small object.
-// One job: remember what is held down, and report each fresh press once.
+// Solmar Bay (v6, Session B) — keyboard, mouse and gamepad, as one small object.
 //
-// v5 vs v4: actions have names now (up/down/left/right/action/punch/pause/
-// mute/run/handbrake) so the game asks for `action` instead of remembering
-// that E means enter; a standard gamepad is supported with the same edge
-// semantics; sticks get a deadzone; the pad can rumble on a bust.
+// One job: remember what is held down, and report each fresh press once.
+// v6 reorganizes v5 into a binding table (one place lists every action and
+// its keys, pad button and stick role) and adds a click accessor the game
+// uses to start from the title screen with the mouse. Same edge semantics:
+// a held key never re-fires, blur clears everything, the pad polls once
+// per frame with a deadzone, and the first gesture wakes the audio.
 
 export const ACTIONS = {
   up: ['w', 'W', 'ArrowUp'],
@@ -23,6 +24,8 @@ export const ACTIONS = {
 // Gamepad buttons, standard mapping: 0 A, 1 B, 2 X, 3 Y, 9 Start.
 const PAD_BUTTONS = { action: 0, handbrake: 1, punch: 2, mission: 3, pause: 9 };
 const STICK_DEADZONE = 0.22;
+// Keys whose default browser behavior would scroll the page or worse.
+const PREVENT_DEFAULT = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '];
 
 export class Input {
   constructor() {
@@ -38,7 +41,7 @@ export class Input {
 
   attach(target) {
     target.addEventListener('keydown', (e) => {
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+      if (PREVENT_DEFAULT.includes(e.key)) e.preventDefault();
       if (e.repeat) return; // held keys must not re-fire edge presses
       if (!this.keys.has(e.key)) this.pressed.add(e.key);
       this.keys.add(e.key);
@@ -51,7 +54,9 @@ export class Input {
     });
     if (typeof window !== 'undefined' && 'ongamepadconnected' in window) {
       window.addEventListener('gamepadconnected', (e) => { this.pad = e.gamepad; });
-      window.addEventListener('gamepaddisconnected', (e) => { if (this.pad && this.pad.index === e.gamepad.index) this.pad = null; });
+      window.addEventListener('gamepaddisconnected', (e) => {
+        if (this.pad && this.pad.index === e.gamepad.index) this.pad = null;
+      });
     }
   }
 
@@ -80,16 +85,13 @@ export class Input {
   // Poll the pad once per frame: edge-detect buttons, keep axes fresh.
   // Safe to call when no pad is connected.
   update() {
-    if (!this.pad) {
-      if (typeof navigator !== 'undefined' && navigator.getGamepads) {
-        const pads = navigator.getGamepads();
-        for (const p of pads) {
-          if (p && p.connected) { this.pad = p; break; }
-        }
+    if (!this.pad && typeof navigator !== 'undefined' && navigator.getGamepads) {
+      for (const p of navigator.getGamepads()) {
+        if (p && p.connected) { this.pad = p; break; }
       }
     }
     if (!this.pad) return;
-    let fresh = null;
+    let fresh = this.pad;
     try {
       if (typeof navigator !== 'undefined' && navigator.getGamepads) {
         fresh = navigator.getGamepads()[this.pad.index] || this.pad;
@@ -126,6 +128,11 @@ export class Input {
 
   hit(...keys) {
     return keys.some((k) => this.pressed.has(k));
+  }
+
+  // True only on the frame the mouse was clicked (cleared by endFrame).
+  clicked() {
+    return this.mouse.clicked;
   }
 
   // Named actions: true while held / true only on the frame it was pressed.

@@ -1,4 +1,4 @@
-// Solmar Bay — a tiny static server for local play (v5, Session C rewrite).
+// Solmar Bay — a tiny static server for local play (v6, Session B rewrite).
 //
 //   node serve.ts [--port 8080] [--host 127.0.0.1]
 //
@@ -6,11 +6,12 @@
 // the playable game as static files, nothing else leaves the machine, and
 // nothing is fetched from the network while you play.
 //
-// v5 vs v4: HEAD requests answer like GET without a body (so screenshot and
-// link-check tools work against it); paths are resolved and then checked
-// against the root with a separator-aware test, so `..` can never escape
-// game/; unknown extensions get a safe binary type instead of a guess; and
-// every response carries no-store, so a stale game is never served twice.
+// v6 reorganizes v5 into one send helper with an extra-headers slot: HEAD
+// answers like GET without a body (so screenshot and link-check tools work
+// against it); paths are resolved and then checked against the root with a
+// separator-aware test, so `..` can never escape game/; unknown extensions
+// get a safe binary type instead of a guess; and every response carries
+// no-store, so a stale game is never served twice.
 
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -62,17 +63,37 @@ function insideRoot(file: string): boolean {
   return file === root || file.startsWith(root + sep);
 }
 
-function notFound(res: import('node:http').ServerResponse): void {
-  res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
-  res.end('not found\n');
+function send(
+  res: import('node:http').ServerResponse,
+  status: number,
+  type: string,
+  body?: Buffer | string,
+  extra?: Record<string, string>,
+): void {
+  const data = body === undefined ? Buffer.alloc(0) : Buffer.isBuffer(body) ? body : Buffer.from(body);
+  res.writeHead(status, {
+    'content-type': type,
+    'content-length': data.length,
+    'cache-control': 'no-store',
+    ...(extra || {}),
+  });
+  res.end(data);
+}
+
+function sendFile(res: import('node:http').ServerResponse, file: string, headOnly: boolean, data: Buffer): void {
+  res.writeHead(200, {
+    'content-type': MIME[extname(file).toLowerCase()] || 'application/octet-stream',
+    'content-length': data.length,
+    'cache-control': 'no-store',
+  });
+  res.end(headOnly ? undefined : data);
 }
 
 const server = createServer(async (req, res) => {
   const stamp = new Date().toISOString();
   try {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
-      res.writeHead(405, { 'content-type': 'text/plain; charset=utf-8', allow: 'GET, HEAD' });
-      res.end('method not allowed\n');
+      send(res, 405, 'text/plain; charset=utf-8', 'method not allowed\n', { allow: 'GET, HEAD' });
       return;
     }
     const url = new URL(req.url || '/', 'http://localhost');
@@ -81,23 +102,15 @@ const server = createServer(async (req, res) => {
     const file = resolve(root, `.${path}`);
     if (!insideRoot(file) || !existsSync(file) || !statSync(file).isFile()) {
       console.log(`${stamp} ${req.method} ${url.pathname} -> 404`);
-      notFound(res);
+      send(res, 404, 'text/plain; charset=utf-8', 'not found\n');
       return;
     }
     const data = await readFile(file);
-    res.writeHead(200, {
-      'content-type': MIME[extname(file).toLowerCase()] || 'application/octet-stream',
-      'content-length': data.length,
-      'cache-control': 'no-store',
-    });
-    res.end(req.method === 'HEAD' ? undefined : data);
+    sendFile(res, file, req.method === 'HEAD', data);
     console.log(`${stamp} ${req.method} ${url.pathname} -> 200 (${data.length} bytes)`);
   } catch (err) {
     console.error(`${stamp} ${req.method} ${req.url} -> 500`, err);
-    if (!res.headersSent) {
-      res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
-    }
-    res.end('server error\n');
+    if (!res.headersSent) send(res, 500, 'text/plain; charset=utf-8', 'server error\n');
   }
 });
 

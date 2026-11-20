@@ -1,12 +1,14 @@
-// Solmar Bay (v5) — the game itself: state, the fixed-step loop, save, screens.
-// One job: own the game object and run it, in play and in screenshot poses.
+// Solmar Bay (v6, Session B) — the game itself: state, the fixed-step
+// loop, save, screens.
 //
-// v5 vs v4: the player comes from the entities factory instead of an inline
-// object, wanted decay runs through entities.stepWanted instead of a second
-// inline copy, the camera and the day length read their config values
-// instead of hardcoded numbers, getting busted fails the active job, the
-// tab hiding itself pauses the game, and the save records total earnings
-// alongside cash and jobs so the title screen can show real progress.
+// One job: own the game object and run it, in play and in screenshot
+// poses. v6 reorganizes v5 so the frame loop is a small dispatcher over
+// named screen handlers (title / play / pause / busted) instead of one
+// long if-chain, polls the gamepad every frame (v5 wired the pad but
+// never called update(), so pad buttons were dead), and lets a mouse
+// click start the game or walk out of the hospital. The save format,
+// the screens, the ?shot= staging contract and window.__solmarGame /
+// window.__solmarReady are unchanged.
 
 import { CAMERA, DAY, ECONOMY, PED_COUNT, PLAYER, SAVE_KEY, SEEDS, STEP, TRAFFIC_COUNT, VIEW } from './config.js';
 import { mulberry32 } from './random.js';
@@ -166,6 +168,52 @@ export class Game {
   }
 }
 
+// --- screen handlers --------------------------------------------------------
+// Each screen owns its own input. The loop only dispatches; nothing here
+// steps the world except the play handler's fixed-step accumulator.
+
+function onTitle(game, frameDt) {
+  game.time += frameDt;
+  if (game.input.actionHit('pause') || game.input.hit('Enter') || game.input.clicked()) {
+    game.screen = 'play';
+    game.message('Welcome to Solmar Bay. Press M to take the first job.', '#ffb02e');
+  }
+}
+
+function onPlay(game, frameDt, acc) {
+  if (game.input.actionHit('pause')) {
+    game.screen = 'pause';
+    game.sfx.stopEngine();
+    return acc;
+  }
+  if (game.input.actionHit('mission')) {
+    if (!game.missions.current) {
+      const next = game.missions.nextAvailable();
+      if (next) game.missions.start(next.id);
+      else game.missions.startTaxi();
+    }
+  }
+  if (game.input.actionHit('mute')) game.sfx.toggleMute();
+  let next = acc + frameDt;
+  let guard = 0;
+  while (next >= STEP && guard < 8) {
+    game.step(STEP, game.input);
+    next -= STEP;
+    guard += 1;
+  }
+  if (guard >= 8) next = 0;
+  return next;
+}
+
+function onPause(game) {
+  if (game.input.actionHit('pause')) game.screen = 'play';
+}
+
+function onBusted(game, frameDt) {
+  game.time += frameDt;
+  if (game.input.hit('Enter') || game.input.clicked()) game.respawn();
+}
+
 // Boot: a canvas, a loop, and two ways in — play, or a posed screenshot.
 const canvas = document.getElementById('game');
 const game = new Game(canvas);
@@ -210,38 +258,11 @@ function frame(now) {
   // A staged screenshot pose is frozen: the loop renders it, never steps it,
   // so the captured frame is exactly the pose, at full speed, every time.
   if (!game.shot) {
-    if (game.screen === 'title' || game.screen === 'pause' || game.screen === 'busted') game.time += frameDt;
-    if (game.screen === 'title') {
-      if (game.input.actionHit('pause') || game.input.hit('Enter')) {
-        game.screen = 'play';
-        game.message('Welcome to Solmar Bay. Press M to take the first job.', '#ffb02e');
-      }
-    } else if (game.screen === 'busted') {
-      if (game.input.hit('Enter')) game.respawn();
-    } else if (game.screen === 'pause') {
-      if (game.input.actionHit('pause')) game.screen = 'play';
-    } else if (game.screen === 'play') {
-      if (game.input.actionHit('pause')) {
-        game.screen = 'pause';
-        game.sfx.stopEngine();
-      }
-      if (game.input.actionHit('mission')) {
-        if (!game.missions.current) {
-          const next = game.missions.nextAvailable();
-          if (next) game.missions.start(next.id);
-          else game.missions.startTaxi();
-        }
-      }
-      if (game.input.actionHit('mute')) game.sfx.toggleMute();
-      acc += frameDt;
-      let guard = 0;
-      while (acc >= STEP && guard < 8) {
-        game.step(STEP, game.input);
-        acc -= STEP;
-        guard += 1;
-      }
-      if (guard >= 8) acc = 0;
-    }
+    game.input.update();
+    if (game.screen === 'title') onTitle(game, frameDt);
+    else if (game.screen === 'pause') onPause(game);
+    else if (game.screen === 'busted') onBusted(game, frameDt);
+    else if (game.screen === 'play') acc = onPlay(game, frameDt, acc);
   }
   game.render();
   game.input.endFrame();

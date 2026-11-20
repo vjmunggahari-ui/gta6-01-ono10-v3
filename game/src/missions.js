@@ -1,23 +1,25 @@
-// Solmar Bay (v5) — the crew's jobs: five story beats, street fares, and
-// fail states that actually bite.
-// One job: tell the player where to go, pay them when they get there, and
-// end the job cleanly when they blow it.
+// Solmar Bay (v6, Session B) — the crew's jobs.
 //
-// v5 vs v4: five story missions instead of three (two new beats close the
-// arc — Dockside Debt and The Last Ferry), three step kinds instead of one
-// (reach / hold / lose-the-heat), a time bonus on clean finishes, fail
-// reasons the player can learn from, randomized street fares drawn from the
-// seeded stream, and an explicit abort + progress API for the HUD.
+// One job: tell the player where to go, pay them when they get there, and
+// end the job cleanly when they blow it. v6 keeps the five v5 story beats
+// and adds a sixth, "The Tower Job", built on the engine's new landmark:
+// the crew wants the Solmar Tower rooftop safe cracked at the downtown
+// plaza, then a clean getaway to the beach. Same step kinds (reach / hold
+// / lose), same pay/time-bonus rules, same public API.
+//
+// Structure: the story table first, then the fare generator, then one
+// state machine (`createMissions`) that owns the active job. The HUD reads
+// progress() and the game loop calls update(dt) every step. progress()
+// also reports the job's pay, so the HUD can show the stake.
 
 import { MISSIONS } from './config.js';
 import { int, pick } from './random.js';
 import { districtAt, pointInBuilding, randomRoadPoint } from './world.js';
 
 // --- story definitions ------------------------------------------------------
-// Steps run in order. `reach` = get within radius. `hold` = stay inside the
-// radius for `holdSec` seconds (a pickup that takes time). `lose` = bring
-// the wanted level under 1 star — the getaway step. `onStep` fires once
-// when a step is entered; `onReach` fires once when it completes.
+// Steps run in order. `reach` = get within radius. `hold` = stay inside
+// the radius for `holdSec` seconds (a pickup that takes time). `lose` =
+// bring the wanted level under 1 star — the getaway step.
 export const DEFS = [
   {
     id: 'm1',
@@ -72,6 +74,18 @@ export const DEFS = [
       { kind: 'reach', x: 2960, y: 2140, radius: 80, label: 'Reach the pier before the ferry leaves', timer: 120 },
     ],
   },
+  {
+    id: 'm6',
+    title: 'The Tower Job',
+    pay: 800,
+    brief: 'The Solmar Tower rooftop safe holds the crew’s cut from the whole season. Crack it at the tower plaza under the gold SOLMAR sign — the PD watches that square — then lose the tail and vanish down the beach.',
+    steps: [
+      { kind: 'reach', x: 1070, y: 990, radius: 80, label: 'Reach the Solmar Tower plaza', timer: 120 },
+      { kind: 'hold', x: 1070, y: 990, radius: 80, holdSec: 6, label: 'Crack the rooftop safe — stay in the plaza', timer: 150 },
+      { kind: 'lose', label: 'Lose the heat — get under 1 star', timer: 150 },
+      { kind: 'reach', x: 1200, y: 2280, radius: 80, label: 'Vanish down Solmar Beach', timer: 120 },
+    ],
+  },
 ];
 
 // Street fares: pickup and drop-off points drawn from named places plus
@@ -85,6 +99,7 @@ const FARE_SPOTS = [
   { x: 1200, y: 2280, label: 'Solmar Beach' },
   { x: 1820, y: 760, label: 'Hillside' },
   { x: 820, y: 1680, label: 'Southside' },
+  { x: 1070, y: 990, label: 'Solmar Tower Plaza' },
 ];
 
 function fareSpot(game, avoid) {
@@ -105,7 +120,7 @@ function fareSpot(game, avoid) {
   return FARE_SPOTS[0];
 }
 
-// --- runtime ----------------------------------------------------------------
+// --- the state machine ------------------------------------------------------
 
 export function createMissions(game) {
   const state = {
@@ -123,11 +138,31 @@ export function createMissions(game) {
     return state.done.length >= DEFS.length;
   }
 
-  function enterStep(m) {
+  // One step-kind handler per kind; each returns true when the step is
+  // complete this frame. `enter` runs once when the step starts.
+  const stepHandlers = {
+    reach(m, step, dt) {
+      const p = game.player;
+      if (Math.hypot(p.x - step.x, p.y - step.y) < (step.radius || 70)) return true;
+      return false;
+    },
+    hold(m, step, dt) {
+      const p = game.player;
+      if (Math.hypot(p.x - step.x, p.y - step.y) < (step.radius || 70)) {
+        m.holdT += dt;
+        return m.holdT >= (step.holdSec || 4);
+      }
+      m.holdT = Math.max(0, m.holdT - dt * 2);
+      return false;
+    },
+    lose(m, step, dt) {
+      return game.wanted < 1;
+    },
+  };
+
+  function onStepSideEffects(m) {
     const step = m.def.steps[m.step];
     if (!step) return;
-    m.timer = 0;
-    m.holdT = 0;
     if (step.kind === 'lose' && game.wanted < 1) {
       // No heat to lose: the step is already satisfied on entry.
       advance(m);
@@ -144,6 +179,20 @@ export function createMissions(game) {
       game.lastCrime = 'The Last Ferry';
       game.lastCrimeT = game.time;
     }
+    if (m.def.id === 'm6' && m.step === 1) {
+      game.wanted = Math.max(game.wanted, 3);
+      game.lastCrime = 'The Tower Job';
+      game.lastCrimeT = game.time;
+      game.message('The safe is open — and the whole square is watching!', '#ff8a5c');
+    }
+  }
+
+  function enterStep(m) {
+    const step = m.def.steps[m.step];
+    if (!step) return;
+    m.timer = 0;
+    m.holdT = 0;
+    onStepSideEffects(m);
   }
 
   function advance(m) {
@@ -230,15 +279,15 @@ export function createMissions(game) {
     if (!m) return null;
     const step = m.def.steps[m.step];
     const total = m.def.steps.length;
-    const frac = total ? m.step / total : 1;
     return {
       title: m.def.title,
       step: m.step + 1,
       steps: total,
-      frac,
+      frac: total ? m.step / total : 1,
       label: step ? step.label : '',
       timer: step && step.timer !== undefined ? Math.max(0, step.timer - m.timer) : null,
       holdFrac: step && step.kind === 'hold' ? Math.min(1, m.holdT / step.holdSec) : null,
+      pay: m.def.pay,
     };
   }
 
@@ -248,45 +297,26 @@ export function createMissions(game) {
     m.timer += dt;
     const step = m.def.steps[m.step];
     if (!step) return;
-    const p = game.player;
-    const dist = (x, y) => Math.hypot(p.x - x, p.y - y);
-    if (step.kind === 'reach') {
-      if (dist(step.x, step.y) < (step.radius || 70)) {
-        if (m.def.id === 'm2' && m.step === 0) {
-          game.wanted = Math.max(game.wanted, 2);
-          game.lastCrime = 'Hot Package';
-          game.lastCrimeT = game.time;
-          game.message('The package is hot — the PD is on you!', '#ff8a5c');
-        }
-        if (m.def.id === 'm4') {
-          game.message(`Crate loaded — ${m.step + 1} of 3 in the truck.`, '#7ddc7d');
-        }
-        advance(m);
-        return;
+    const handler = stepHandlers[step.kind];
+    if (handler && handler(m, step, dt)) {
+      if (m.def.id === 'm2' && m.step === 0) {
+        game.wanted = Math.max(game.wanted, 2);
+        game.lastCrime = 'Hot Package';
+        game.lastCrimeT = game.time;
+        game.message('The package is hot — the PD is on you!', '#ff8a5c');
       }
-    } else if (step.kind === 'hold') {
-      if (dist(step.x, step.y) < (step.radius || 70)) {
-        m.holdT += dt;
-        if (m.holdT >= (step.holdSec || 4)) {
-          game.message(`Crate ${m.step + 1} of 3 loaded.`, '#7ddc7d');
-          advance(m);
-          return;
-        }
-      } else {
-        m.holdT = Math.max(0, m.holdT - dt * 2);
+      if (m.def.id === 'm4') {
+        game.message(`Crate loaded — ${m.step + 1} of 3 in the truck.`, '#7ddc7d');
       }
-    } else if (step.kind === 'lose') {
-      if (game.wanted < 1) {
-        game.message('Heat is off. Move.', '#7ddc7d');
-        advance(m);
-        return;
-      }
+      advance(m);
+      return;
     }
     if (step.timer !== undefined && m.timer > step.timer) {
       fail(m, 'too slow — the job moved on without you.');
       return;
     }
     // A delivery job fails if the player's car is wrecked mid-run.
+    const p = game.player;
     if (!p.onFoot && p.car && p.car.wrecked && m.def.id !== 'taxi') {
       fail(m, 'your ride is wrecked — the cargo is lost.');
     }

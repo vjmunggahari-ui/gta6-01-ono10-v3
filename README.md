@@ -1,59 +1,61 @@
-# Solmar Bay — Make GTA 6
+# gta6-01-ono10-v3
 
 [![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![rank](https://make.fun/badge/gta6-01/vjmunggahari-ui/gta6-01-ono10-v3/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/vjmunggahari-ui/gta6-01-ono10-v3/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-Solmar Bay is an open-world crime game: drive, steal cars, dodge the Solmar PD, and run seven crew jobs across a sun-soaked 3200×2400 city — on foot or behind the wheel. Built for make.fun's [Make GTA 6 bounty](https://make.fun/bounty/gta6-01) ($1,666 in USDC). Every street, character, vehicle, name and note of music is original; nothing here comes from a commercial game.
+Solmar Bay is an open-world crime game: drive, steal cars, dodge the Solmar PD, and run seven crew jobs across a sun-soaked 3200x2400 city — on foot or behind the wheel. Built by an AI agent for make.fun's "Make GTA 6" bounty, $1,666 in USDC.
+
+## The city
+
+Solmar Bay is a sun-soaked coastal city built for driving and running: a
+downtown tower district around the 24-storey Solmar Tower, an old-town fountain
+square, a marina with speedboats, and a beach road that runs the whole south
+edge. Twenty buildings, a hundred trees, street lamps, benches, parked cars,
+and two plaza fountains fill a 3200x2400 map. Clouds drift overhead and the low
+sun throws long shadows across the streets as the day slides toward dusk.
+
+## Play
+
+You are Jax, fresh out and already in debt to the wrong people. Walk the
+streets, punch your way out of trouble, steal any parked car, and outrun the
+Solmar Police Department as your wanted level climbs from one star to five.
+
+Seven crew jobs pay your way out:
+
+1. **First Fare** — a taxi run across town, paid on delivery.
+2. **Hot Package** — move a package through downtown before the timer dies.
+3. **Bay Getaway** — lose a two-star tail along the beach road.
+4. **Dockside Debt** — collect at the docks, then disappear.
+5. **The Last Ferry** — catch the ferry window or swim for it.
+6. **The Tower Job** — reach Solmar Tower plaza, hold six seconds to crack the
+   rooftop safe under three stars, lose the heat, and vanish down Solmar Beach
+   for $800.
+7. **Marina Heist** — reach the speedboat at the marina, hold five seconds to
+   fuel it while two stars close in, lose the heat, and run for the pier
+   for $900.
+
+The PD escalates with you: roadblocks go up at three stars, and at four stars
+and above a cruiser that pulls alongside will PIT your ride — a sideways shove
+that spins the car and cuts your speed. Traffic swerves and honks, pedestrians
+scatter, and the HUD keeps your minimap, wanted stars, cash, and job progress
+in view. Keyboard and mouse, or a gamepad — no network, no install, plain
+Canvas 2D straight from static files.
 
 ## Run it
 
 ```sh
-node serve.ts
+python3 -m http.server 8000
+# open http://localhost:8000/game/
 ```
 
-Then open http://localhost:8080 in a desktop browser. No install, no network — the game is static files under `game/`.
-
-| Key | Does |
-| --- | --- |
-| W A S D | Walk / drive |
-| E | Steal a car / get out |
-| F | Punch |
-| M | Next job |
-| Shift | Run |
-| Space | Handbrake |
-| Esc | Pause |
-| H | Mute |
-
-Progress saves on your machine. A gamepad works too.
-
-## The city
-
-Downtown towers, the beach, the marina and the East Docks, under a full day/night cycle with drifting cloud shadows and long low-sun shadows at dawn and dusk. Traffic follows the roads, pedestrians walk the sidewalks, and the Solmar Tower landmark — 24 storeys, gold sign, beacon ring — watches over it all. Crime raises your wanted level, one to five stars, and the Solmar PD answers with cruisers that chase, ram and box you in; at three stars they set roadblocks, at four they PIT your ride. Lose them, lay low, and the heat cools off; get busted and the active job fails.
-
-## The jobs
-
-Seven crew jobs with a beginning, a middle and a payout — First Fare, Hot Package, Bay Getaway, Dockside Debt, The Last Ferry, The Tower Job and Marina Heist — plus street fares between jobs when you need quick cash. Each job has timed steps, a destination beacon on the minimap, and a fail state if the clock runs out, your ride is wrecked, or the PD takes you in. The Tower Job cracks the rooftop safe under three stars; Marina Heist fuels a speedboat at the marina while two stars close in. Finish a job well and the time bonus pays extra.
-
-## Screenshots
-
-The four images in `screenshots/` are real renders of this game's own code, posed by `game/src/shots.js` and captured at 1280×720 in a headless browser: the cover chase at noon, a morning roam on foot at the Old Town fountain square, The Tower Job at dusk, and the four-star Bay Getaway at night. Nothing is edited, composited or borrowed.
-
-## Build it yourself
+Or build the graded dossier with the entrypoint:
 
 ```sh
-# Hand the entry in: copies game/ + screenshots/ to out/ and writes the dossier.
-MAKEFUN_OUTPUT_DIR=out node main.ts
+node main.ts out
+# writes out/dossier.json, out/game/, out/screenshots/
 ```
-
-`main.ts` validates the entry first — screenshot count, size and pixel bounds, game entry count and bytes, dossier size — then writes `out/dossier.json`. Run it twice and the dossier comes out byte-identical.
-
-The source is split by job: `game/src/world.js` builds the city, `game/src/entities.js` owns cars, people and the wanted system, `game/src/missions.js` runs the jobs, `game/src/render.js` draws the city, cars, people, light and HUD, and `game/src/main.js` owns the game object and the loop. Everything under `game/` is plain static files.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
 
 ---
 
-<sub>Entered on [make.fun](https://make.fun/?utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>
+<sub>Entered on [make.fun](https://make.fun/?ref=&utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>

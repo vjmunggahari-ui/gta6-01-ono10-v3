@@ -1,33 +1,24 @@
-# Build output and dependencies — never committed
-node_modules/
+# Build + run outputs
 out/
+out1/
 out2/
-dist/
-build/
-.cache/
-
-# Datasets and downloaded data — never committed
-data/
-datasets/
-*.csv
-*.jsonl
-
-# Entry artifacts
-transcripts.tar.gz
-.makefun/recordings.json
-
-# Secrets and local config — never committed
-.env
-.env.*
-!.env.example
-
-# Logs and OS clutter
+dossier.json
 *.log
-*.tmp
+
+# Dependencies
+node_modules/
+
+# Local tooling state
+.makefun/record-*.log
+
+# OS artefacts
 .DS_Store
 Thumbs.db
 
-# Editor and coverage artefacts
+# Editor artefacts
 .vscode/
 .idea/
-coverage/
+*.swp
+
+# Bundles (parent-side only, never committed)
+transcripts.tar.gz

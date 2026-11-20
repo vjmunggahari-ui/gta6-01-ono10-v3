@@ -1,9 +1,10 @@
-// Solmar Bay (v5) — every number the game agrees on, in one place.
+// Solmar Bay (v6) — every number the game agrees on, in one place.
 // One job: hold the constants so the modules never disagree about the city.
 //
-// v5 vs v4: fills the holes v4 referenced but never defined (reverse accel,
-// steal/punch wanted, punch cooldown and arc), adds a per-star wanted table,
-// mission timers, a day/night cycle, named districts, and a camera model.
+// v6 adds the cloud-shadow and landmark tuning on top of v5's set (per-star
+// wanted table, mission timers, day/night cycle, named districts, camera
+// model). Values below are the game's balance; changing one changes how the
+// city plays, so a tuning change is a deliberate decision, not a cleanup.
 
 export const VIEW = { w: 1280, h: 720 };
 export const WORLD = { w: 3200, h: 2400 };
@@ -62,6 +63,25 @@ export const COLORS = {
   hudText: '#f4f1e6',
   danger: '#ff5c5c',
   money: '#7ddb8a',
+  // Neon sign colours for downtown facades after dark.
+  neon: ['#ff2e88', '#2ee6ff', '#ffe14d', '#7dff5e'],
+};
+
+// --- sky: clouds and low sun ------------------------------------------------
+// Cloud shadows drift across the city in daylight; the sun sits low near
+// dawn and dusk, so buildings throw long shadows then and none at noon.
+export const CLOUDS = {
+  count: 6,
+  driftPerSec: 14, // world units per second, east to west
+  minR: 180,
+  maxR: 320,
+  alpha: 0.10, // how dark a cloud shadow reads at full daylight
+};
+export const SUN = {
+  // Shadow length in world units at the lowest sun, scaled by a building's
+  // storeys; zero once the sun is high (darkness below lowSunDark).
+  maxLenPerStorey: 14,
+  lowSunDark: 0.55,
 };
 
 // --- day / night ------------------------------------------------------------
@@ -83,7 +103,7 @@ export const PLAYER = {
   runSpeed: 285,
   punchDamage: 25,
   punchRange: 36,
-  punchArc: 1.1, // radians either side of facing; v4 used this but never defined it
+  punchArc: 1.1, // radians either side of facing
   punchCooldown: 0.45,
   enterRange: 52,
 };
@@ -93,7 +113,7 @@ export const CAR = {
   maxSpeed: 560,
   accel: 430,
   brake: 780,
-  reverseAccel: 300, // v4 drove backwards with an undefined constant
+  reverseAccel: 300,
   maxReverse: 170,
   turnRate: 2.7,
   radius: 24,
@@ -130,7 +150,7 @@ export const WANTED = {
   max: 5,
   decayPerSec: 0.25, // drains only once the heat is off; see entities.stepWanted
   decayDelaySec: 6, // seconds after the last crime before decay may start
-  stealAdd: 1, // v4 added this to wanted but never defined the value
+  stealAdd: 1,
   punchAdd: 1,
   hitPedAdd: 1,
   crashAdd: 0.2,

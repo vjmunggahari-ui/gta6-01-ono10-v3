@@ -1,14 +1,15 @@
-// Solmar Bay (v5) — the city itself: districts, blocks, buildings, trees,
-// boats, parked cars, lamps and piers.
+// Solmar Bay (v6) — the city itself: districts, blocks, buildings, trees,
+// boats, parked cars, lamps, benches, fountains and piers.
 // One job: build the same city from the same seed, every time.
 //
-// v5 vs v4: buildings carry their district and a storey count (downtown
-// towers over the suburbs), props include lamps and benches, the marina has
-// moored slips, and collisions run against a coarse grid index instead of
-// scanning every building for every body. A body whose centre lands inside
-// a building is pushed out along the shallowest side (v4 skipped it).
+// v6 vs v5: two plaza blocks carry fountains instead of buildings (an Old
+// Town square and a Downtown square, with benches and trees around the
+// water); the tallest downtown tower is flagged as the Solmar Tower
+// landmark; some tall downtown facades carry neon signs. Collisions still
+// run against the coarse grid index, and a body whose centre lands inside
+// a building is pushed out along the shallowest side.
 
-import { BEACH_TOP, DISTRICTS, MARINA_LEFT, PIER, PLACES, ROADS_X, ROADS_Y, ROAD_HALF, SEA_TOP, WORLD } from './config.js';
+import { BEACH_TOP, COLORS, DISTRICTS, MARINA_LEFT, PIER, PLACES, ROADS_X, ROADS_Y, ROAD_HALF, SEA_TOP, WORLD } from './config.js';
 import { int, mulberry32, pick, range } from './random.js';
 
 const PALETTES = {
@@ -22,6 +23,14 @@ const PALETTES = {
 const CAR_COLORS = ['#d94f3d', '#3d7dd9', '#e8c33a', '#4ad97b', '#e8e6da', '#7a5fd9', '#e07b39'];
 const GRID_CELL = 256;
 
+// Blocks that become open plazas instead of building plots: [column, row]
+// in the road grid. Old Town square (ix 0, iy 1) and Downtown square
+// (ix 1, iy 1) each get a fountain at the block centre.
+const PLAZAS = [
+  { ix: 0, iy: 1 },
+  { ix: 1, iy: 1 },
+];
+
 export function districtAt(x, y) {
   for (const d of DISTRICTS) {
     if (x >= d.x0 && x < d.x1 && y >= d.y0 && y < d.y1) return d;
@@ -31,6 +40,10 @@ export function districtAt(x, y) {
 
 function gridKey(cx, cy) {
   return `${cx},${cy}`;
+}
+
+function isPlaza(ix, iy) {
+  return PLAZAS.some((p) => p.ix === ix && p.iy === iy);
 }
 
 // Index buildings into coarse grid cells so collideBuildings only tests the
@@ -59,6 +72,7 @@ export function buildWorld(seed) {
   const trees = [];
   const lamps = [];
   const benches = [];
+  const fountains = [];
   // One or two buildings per block, kept off the roads, the beach and the marina.
   for (let ix = 0; ix < ROADS_X.length - 1; ix += 1) {
     for (let iy = 0; iy < ROADS_Y.length - 1; iy += 1) {
@@ -69,6 +83,29 @@ export function buildWorld(seed) {
       if (x1 <= x0 + 60 || y1 <= y0 + 60) continue;
       if (x0 > MARINA_LEFT - 100) continue;
       if (y0 > BEACH_TOP - 100) continue;
+      // A plaza block gets a fountain and greenery, no buildings.
+      if (isPlaza(ix, iy)) {
+        const cx = Math.round((x0 + x1) / 2);
+        const cy = Math.round((y0 + y1) / 2);
+        fountains.push({ x: cx, y: cy, r: 42 });
+        for (let t = 0; t < 8; t += 1) {
+          const ang = (t / 8) * Math.PI * 2 + range(rng, -0.2, 0.2);
+          const dist = range(rng, 70, 120);
+          trees.push({
+            x: Math.round(cx + Math.cos(ang) * dist),
+            y: Math.round(cy + Math.sin(ang) * dist),
+            r: Math.round(range(rng, 10, 16)),
+          });
+        }
+        for (let b = 0; b < 3; b += 1) {
+          benches.push({
+            x: Math.round(cx + range(rng, -90, 90)),
+            y: Math.round(cy + range(rng, -90, 90)),
+            angle: rng() < 0.5 ? 0 : Math.PI / 2,
+          });
+        }
+        continue;
+      }
       const district = districtAt((x0 + x1) / 2, (y0 + y1) / 2);
       const palette = PALETTES[district.palette] || PALETTES.city;
       const count = district.density >= 2 && rng() < 0.6 ? 2 : 1;
@@ -77,6 +114,12 @@ export function buildWorld(seed) {
         const h = range(rng, 80, Math.min(200, y1 - y0 - 20));
         const bx = n === 0 ? x0 + range(rng, 0, 20) : x1 - w - range(rng, 0, 20);
         const by = y0 + range(rng, 0, Math.max(1, y1 - y0 - h));
+        const stories = district.id === 'downtown' ? int(rng, 6, 18) : district.id === 'oldtown' ? int(rng, 2, 4) : int(rng, 1, 3);
+        // Tall downtown facades sometimes carry a neon sign after dark.
+        let neon = null;
+        if (district.id === 'downtown' && stories >= 6 && rng() < 0.45) {
+          neon = pick(rng, COLORS.neon);
+        }
         buildings.push({
           x: Math.round(bx),
           y: Math.round(by),
@@ -85,7 +128,9 @@ export function buildWorld(seed) {
           color: pick(rng, palette),
           roof: rng() < 0.18 ? 'pool' : rng() < 0.3 ? 'garden' : 'flat',
           district: district.id,
-          stories: district.id === 'downtown' ? int(rng, 6, 18) : district.id === 'oldtown' ? int(rng, 2, 4) : int(rng, 1, 3),
+          stories,
+          neon,
+          landmark: false,
         });
       }
       // Trees along the block edges, plus a bench or two where people linger.
@@ -101,6 +146,18 @@ export function buildWorld(seed) {
         benches.push({ x: Math.round(range(rng, x0, x1)), y: Math.round(range(rng, y0, y1)), angle: rng() < 0.5 ? 0 : Math.PI / 2 });
       }
     }
+  }
+  // The Solmar Tower: the tallest downtown building, raised to 24 storeys
+  // and flagged so the renderer gives it a beacon and a rooftop sign.
+  let tower = null;
+  for (const b of buildings) {
+    if (b.district !== 'downtown') continue;
+    if (!tower || b.stories > tower.stories) tower = b;
+  }
+  if (tower) {
+    tower.stories = 24;
+    tower.landmark = true;
+    tower.neon = null;
   }
   // Street lamps at every intersection, on alternating corners.
   for (const rx of ROADS_X) {
@@ -137,7 +194,7 @@ export function buildWorld(seed) {
     });
   }
   return {
-    buildings, trees, lamps, benches, boats, parked,
+    buildings, trees, lamps, benches, boats, parked, fountains,
     places: { ...PLACES },
     pier: { ...PIER },
     grid: indexBuildings(buildings),
@@ -236,7 +293,7 @@ export function pointInBuilding(world, x, y) {
 // Pushes a body out of any building it overlaps; true when it pushed.
 // Only the grid cells around the body are tested now, not the whole city.
 // A body whose centre is inside a building is pushed out along the
-// shallowest side — v4 skipped that case entirely and left it stuck.
+// shallowest side.
 export function collideBuildings(world, body) {
   if (!Number.isFinite(body.x) || !Number.isFinite(body.y)) return false;
   const r = body.radius || 12;

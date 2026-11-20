@@ -1,10 +1,10 @@
-// Solmar Bay (v5) — deterministic randomness: the same seed, the same city.
+// Solmar Bay (v6) — deterministic randomness: the same seed, the same city.
 // One job: hand out numbers that never change between runs.
 //
-// v5 vs v4: one canonical name per helper (v4 shipped both `range`/`rrange`
-// and `pick`/`rpick` doing the same thing), plus string seeds, weighted
-// picks, shuffles, a gaussian, and forkable sub-streams so traffic, peds and
-// the world can draw independently from one master seed.
+// Every draw comes from a seeded stream, never from Math.random or the
+// clock, so a city built from seed 1337 is the same city on every machine
+// and every run. Subsystems fork their own streams from one master stream
+// so traffic, pedestrians and the world never eat each other's numbers.
 
 // mulberry32 — small, fast, good-enough PRNG for a game. Same seed, same
 // sequence, on every engine.

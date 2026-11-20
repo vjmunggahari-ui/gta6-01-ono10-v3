@@ -1,53 +1,102 @@
-// Solmar Bay — screenshot camera definitions for the dossier pipeline.
-// Each shot stages the game into a scene the judge can read at a glance:
-// cover (city + title), roam (on foot / by car), mission (a job in
-// progress), chase (police chase at high wanted level).
-export const SHOT_DEFS = [
-  {
-    id: '1-cover', file: '1-cover.png', label: 'Solmar Bay — open-world crime game',
-    setup: (state) => {
-      state.player.x = 820; state.player.y = 1050; state.player.onFoot = true;
-      state.player.wanted = 0;
-      state.message = 'SOLMAR BAY — drive, steal cars, dodge the Solmar PD';
-    },
-  },
-  {
-    id: '2-roam', file: '2-roam.png', label: 'Roaming Solmar Bay on foot and by car',
-    setup: (state) => {
-      state.player.x = 1350; state.player.y = 1150; state.player.onFoot = false;
-      state.player.car = { x: 1350, y: 1150, angle: 0, taken: true };
-      state.player.angle = 0; state.player.speed = 120;
-      state.player.wanted = 0;
-      state.message = 'Cruising the avenues — traffic, pedestrians, neon';
-    },
-  },
-  {
-    id: '3-mission', file: '3-mission.png', label: 'First Fare — a job in progress',
-    setup: (state) => {
-      state.missionsApi.startMission('m1');
-      state.player.x = 820; state.player.y = 990; state.player.onFoot = true;
-      state.player.wanted = 1;
-      state.message = 'First Fare — reach the plaza pickup';
-    },
-  },
-  {
-    id: '4-chase', file: '4-chase.png', label: 'Four-star chase — the Solmar PD closes in',
-    setup: (state) => {
-      state.policeApi.setWanted(4);
-      state.player.x = 1850; state.player.y = 1150; state.player.onFoot = false;
-      state.player.car = { x: 1850, y: 1150, angle: 0, taken: true };
-      state.player.angle = 0; state.player.speed = 220;
-      state.policeApi.spawnCruiser(1790, 1100);
-      state.policeApi.spawnCruiser(1930, 1210);
-      state.policeApi.spawnCruiser(1850, 1000);
-      state.message = '4 stars — PIT maneuver incoming';
-    },
-  },
-];
+// Solmar Bay — screenshot staging.
+// applyShot(state, id) poses the game for one of the four dossier shots:
+// cover (city + tower + title framing), roam (on foot in the plaza),
+// mission (m1 in progress, fare picked up), chase (4 stars, cruisers on
+// the tail, roadblocks ahead). Pure state setup — no rendering here.
 
+import { PLAZA, TOWER } from './config.js';
+
+// Stage a shot by id. Returns true when the id is known.
 export function applyShot(state, id) {
-  const shot = SHOT_DEFS.find((s) => s.id === id);
-  if (!shot) return false;
-  shot.setup(state);
-  return true;
+  const p = state.player;
+  const cam = state.cam;
+  const api = state.missionsApi;
+  const police = state.policeApi;
+  switch (id) {
+    case 'cover': {
+      // Wide plaza view: player on foot between the fountains, tower behind.
+      p.onFoot = true;
+      p.car = null;
+      p.x = PLAZA.x;
+      p.y = PLAZA.y + 130;
+      p.angle = -Math.PI / 2;
+      p.speed = 0;
+      police.setWanted(0);
+      cam.follow(p.x, p.y);
+      return true;
+    }
+    case 'roam': {
+      // On foot at a far southeast intersection, well away from the plaza,
+      // so the frame reads as a different district: traffic passing,
+      // pedestrians nearby.
+      p.onFoot = true;
+      p.car = null;
+      p.x = 2350;
+      p.y = 1550;
+      p.angle = 0;
+      p.speed = 0;
+      police.setWanted(0);
+      cam.follow(p.x, p.y);
+      return true;
+    }
+    case 'mission': {
+      // m1 in progress: fare picked up, heading for Solmar Tower.
+      api.startMission('m1');
+      const job = api.active;
+      if (job) {
+        job.stage = 'dropoff';
+        job.picked = true;
+      }
+      p.onFoot = false;
+      const car = state.world.parkedCars[0];
+      if (car) {
+        p.car = car;
+        state.world.parkedCars = state.world.parkedCars.filter((c) => c !== car);
+        p.x = car.x;
+        p.y = car.y;
+        p.angle = car.angle;
+      } else {
+        p.x = 850;
+        p.y = 1150;
+      }
+      p.speed = 120;
+      police.setWanted(1);
+      cam.follow(p.x, p.y);
+      return true;
+    }
+    case 'chase': {
+      // 4 stars: three cruisers on the tail, roadblocks ahead.
+      p.onFoot = false;
+      const car = state.world.parkedCars[1] || state.world.parkedCars[0];
+      if (car) {
+        p.car = car;
+        state.world.parkedCars = state.world.parkedCars.filter((c) => c !== car);
+        p.x = car.x;
+        p.y = car.y;
+        p.angle = car.angle;
+      } else {
+        p.x = 1350;
+        p.y = 1150;
+      }
+      p.speed = 380;
+      police.setWanted(4);
+      // Drive the cruisers close so the frame reads as a chase.
+      state.now = 0;
+      const rng = state.rng;
+      for (let i = 0; i < 3; i++) {
+        const c = police.spawnCruiser(p.x - 120 - i * 60, p.y + (i - 1) * 70);
+        c.speed = 380;
+        c.angle = p.angle;
+        state.police.cruisers.push(c);
+      }
+      // One roadblock in view.
+      state.police.roadblocks = [{ x: 1850, y: 1150, angle: Math.PI / 2 }];
+      cam.follow(p.x, p.y);
+      return true;
+    }
+    default:
+      return false;
+  }
 }
+
+export const SHOT_IDS = ['cover', 'roam', 'mission', 'chase'];

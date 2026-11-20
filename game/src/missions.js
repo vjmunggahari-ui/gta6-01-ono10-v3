@@ -1,132 +1,156 @@
-// Solmar Bay — the seven crew jobs. Each definition carries its payout and
-// its own objective steps; the tracker owns start / progress / completion
-// and pays the player exactly once per job.
+// Solmar Bay — missions: seven crew jobs.
+// Each def carries its payout, a start point and a finish point. The
+// missions API tracks the active job and the "Jobs done n/7" counter.
+// m7 "Marina Heist" is a three-stage job: reach the speedboat at the
+// marina, hold 5 s to fuel it while staying under 2 stars, lose the heat,
+// then run for the pier.
+
+import { TOWER, PLAZA } from './config.js';
+
 export const MISSION_DEFS = [
   {
     id: 'm1', name: 'First Fare', payout: 150,
-    brief: 'Pick up the fare at the plaza and drop them at the tower.',
-    steps: [
-      { kind: 'goto', x: 820, y: 990, r: 60, text: 'Reach the plaza pickup' },
-      { kind: 'goto', x: 1377, y: 978, r: 80, text: 'Drop the fare at Solmar Tower' },
-    ],
+    brief: 'Pick up the fare at the plaza and drop them at Solmar Tower.',
+    start: { x: PLAZA.x, y: PLAZA.y - 60 },
+    finish: { x: TOWER.x, y: TOWER.y + 120 },
   },
   {
     id: 'm2', name: 'Hot Package', payout: 300,
-    brief: 'Grab the package from the docks and deliver it to the east garage.',
-    steps: [
-      { kind: 'goto', x: 350, y: 1950, r: 60, text: 'Collect the package at the docks' },
-      { kind: 'goto', x: 2850, y: 750, r: 60, text: 'Deliver to the east garage' },
-    ],
+    brief: 'Grab the package by the north docks and deliver it east, fast.',
+    start: { x: 1350, y: 350 },
+    finish: { x: 2850, y: 750 },
   },
   {
     id: 'm3', name: 'Bay Getaway', payout: 500,
-    brief: 'Lose a 2-star tail, then reach the north bridge before the timer ends.',
-    steps: [
-      { kind: 'heat', max: 1, text: 'Drop your heat to 1 star or less' },
-      { kind: 'goto', x: 1850, y: 350, r: 70, text: 'Reach the north bridge' },
-    ],
+    brief: 'Lose the tail: reach the south beach without a cruiser in sight.',
+    start: { x: 850, y: 1150 },
+    finish: { x: 1850, y: 2020 },
   },
   {
     id: 'm4', name: 'Dockside Debt', payout: 420,
-    brief: 'Collect from three debtors along the waterfront, then return to the plaza.',
-    steps: [
-      { kind: 'goto', x: 350, y: 1950, r: 60, text: 'Collect from debtor 1' },
-      { kind: 'goto', x: 1350, y: 1950, r: 60, text: 'Collect from debtor 2' },
-      { kind: 'goto', x: 2350, y: 1950, r: 60, text: 'Collect from debtor 3' },
-      { kind: 'goto', x: 820, y: 990, r: 60, text: 'Return to the plaza' },
-    ],
+    brief: 'Collect the debt at the west marina, then bring it to the plaza.',
+    start: { x: 350, y: 1950 },
+    finish: { x: PLAZA.x + 90, y: PLAZA.y },
   },
   {
     id: 'm5', name: 'The Last Ferry', payout: 650,
-    brief: 'Escort the ferry passenger to the pier before the boat leaves.',
-    steps: [
-      { kind: 'goto', x: 570, y: 990, r: 60, text: 'Meet the passenger at the west fountain' },
-      { kind: 'goto', x: 1350, y: 2100, r: 80, text: 'Reach the ferry pier' },
-    ],
+    brief: 'Catch the last ferry crew at the pier before they cast off.',
+    start: { x: 2350, y: 350 },
+    finish: { x: 2350, y: 2050 },
   },
   {
     id: 'm6', name: 'The Tower Job', payout: 800,
-    brief: 'Break into Solmar Tower, grab the ledger, and get out clean.',
-    steps: [
-      { kind: 'goto', x: 1377, y: 978, r: 80, text: 'Enter Solmar Tower' },
-      { kind: 'wait', seconds: 6, text: 'Hold the office for 6s' },
-      { kind: 'goto', x: 850, y: 750, r: 70, text: 'Escape to the getaway car' },
-    ],
+    brief: 'Lift the ledger from Solmar Tower and vanish to the east end.',
+    start: { x: TOWER.x, y: TOWER.y },
+    finish: { x: 2850, y: 1550 },
   },
   {
     id: 'm7', name: 'Marina Heist', payout: 900,
-    brief: 'Reach the speedboat at the marina, fuel it for 5s under 2 stars, lose the heat, run for the pier.',
-    steps: [
-      { kind: 'goto', x: 1600, y: 2120, r: 70, text: 'Reach the speedboat at the marina' },
-      { kind: 'fuel', seconds: 5, maxHeat: 1, text: 'Fuel the boat — hold 5s under 2 stars' },
-      { kind: 'heat', max: 0, text: 'Lose all heat' },
-      { kind: 'goto', x: 2850, y: 2100, r: 80, text: 'Run for the pier' },
-    ],
+    brief: 'Reach the speedboat, fuel it for 5 s under 2 stars, lose the heat, run for the pier.',
+    start: { x: 1850, y: 2040 },
+    finish: { x: 2850, y: 2070 },
   },
 ];
 
-function dist(ax, ay, bx, by) {
-  return Math.hypot(ax - bx, ay - by);
-}
+const RADIUS = 70;
 
-// The tracker: one active job at a time, step progress, exact payout once.
-export function makeMissions(state) {
-  const tracker = {
+export function makeMissionsApi(state) {
+  const api = {
     defs: MISSION_DEFS,
-    active: null,
-    done: Object.create(null),
-    banner: '',
-    startMission(id) {
-      const def = MISSION_DEFS.find((m) => m.id === id);
-      if (!def || this.done[id] || (this.active && this.active.id === id)) return false;
-      this.active = { id, def, step: 0, waitT: 0, fuelT: 0 };
-      this.banner = `${def.name} — ${def.brief}`;
-      return true;
-    },
+    active: null, // {def, stage, picked, fuel, fuelStart}
+    done: new Set(),
+
     jobsDone() {
-      return Object.keys(this.done).length;
+      return api.done.size;
     },
-    currentText() {
-      if (!this.active) return 'No job active — press M for the next job';
-      const step = this.active.def.steps[this.active.step];
-      return step ? step.text : '';
+
+    startMission(id) {
+      const def = MISSION_DEFS.find((d) => d.id === id);
+      if (!def || api.done.has(id) || api.active) return null;
+      api.active = { def, stage: 'pickup', picked: false, fuel: 0, fuelStart: 0 };
+      return api.active;
     },
-    // Advance the active job. `p` is the player {x,y}, `heat` the wanted
-    // level, dt seconds. Returns the payout when a job completes, else 0.
-    update(p, heat, dt) {
-      if (!this.active) return 0;
-      const job = this.active;
-      const step = job.def.steps[job.step];
-      if (!step) return 0;
-      let advanced = false;
-      if (step.kind === 'goto') {
-        if (dist(p.x, p.y, step.x, step.y) <= step.r) advanced = true;
-      } else if (step.kind === 'wait') {
-        job.waitT += dt;
-        if (job.waitT >= step.seconds) advanced = true;
-      } else if (step.kind === 'fuel') {
-        if (heat <= step.maxHeat) {
-          job.fuelT += dt;
-          if (job.fuelT >= step.seconds) advanced = true;
-        } else {
-          job.fuelT = 0;
+
+    cancelMission() {
+      api.active = null;
+    },
+
+    // Advance the active job. Returns 'complete' when it pays out, or null.
+    // now is seconds since the game started.
+    update(dt, now) {
+      const job = api.active;
+      if (!job) return null;
+      const p = state.player;
+      const dist = (pt) => Math.hypot(p.x - pt.x, p.y - pt.y);
+
+      if (job.def.id === 'm7') {
+        // Stage 1: reach the speedboat.
+        if (job.stage === 'pickup') {
+          if (dist(job.def.start) < RADIUS) {
+            job.stage = 'fuel';
+            job.fuelStart = now;
+          }
+          return null;
         }
-      } else if (step.kind === 'heat') {
-        if (heat <= step.max) advanced = true;
+        // Stage 2: hold 5 s fueling while wanted stays under 2 stars.
+        if (job.stage === 'fuel') {
+          if (state.police.wanted >= 2) {
+            job.fuel = 0;
+            job.fuelStart = now;
+            return null;
+          }
+          job.fuel = now - job.fuelStart;
+          if (job.fuel >= 5) job.stage = 'escape';
+          return null;
+        }
+        // Stage 3: lose the heat, then reach the pier.
+        if (job.stage === 'escape') {
+          if (state.police.wanted === 0 && dist(job.def.finish) < RADIUS) {
+            return api.finish(job);
+          }
+          return null;
+        }
+        return null;
       }
-      if (!advanced) return 0;
-      job.step += 1;
-      job.waitT = 0;
-      job.fuelT = 0;
-      if (job.step >= job.def.steps.length) {
-        const pay = job.def.payout;
-        this.done[job.id] = true;
-        this.banner = `${job.def.name} complete — $${pay} banked. Jobs done ${this.jobsDone()}/7`;
-        this.active = null;
-        return pay;
+
+      // Ordinary jobs: reach the pickup, then the drop-off.
+      if (job.stage === 'pickup') {
+        if (dist(job.def.start) < RADIUS) {
+          job.stage = 'dropoff';
+          job.picked = true;
+        }
+        return null;
       }
-      return 0;
+      if (job.stage === 'dropoff') {
+        if (dist(job.def.finish) < RADIUS) return api.finish(job);
+        return null;
+      }
+      return null;
+    },
+
+    finish(job) {
+      api.done.add(job.def.id);
+      state.cash += job.def.payout;
+      const paid = { id: job.def.id, name: job.def.name, payout: job.def.payout };
+      api.active = null;
+      api.lastPaid = paid;
+      return 'complete';
+    },
+
+    statusText() {
+      const job = api.active;
+      if (!job) return 'No job. Press 1-7 to take a job.';
+      const d = job.def;
+      if (d.id === 'm7') {
+        if (job.stage === 'pickup') return 'Marina Heist: reach the speedboat.';
+        if (job.stage === 'fuel') {
+          return `Marina Heist: fueling ${Math.max(0, 5 - job.fuel).toFixed(1)}s — stay under 2 stars!`;
+        }
+        return 'Marina Heist: lose the heat, then reach the pier.';
+      }
+      if (job.stage === 'pickup') return `${d.name}: pick up at the marker.`;
+      return `${d.name}: deliver to the marker.`;
     },
   };
-  return tracker;
+  return api;
 }

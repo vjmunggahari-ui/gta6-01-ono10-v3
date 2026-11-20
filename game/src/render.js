@@ -1,194 +1,188 @@
-// Solmar Bay — Canvas 2D renderer. Imports config + random only.
-// Everything draws in world coordinates; the camera clips to the viewport.
-import { WORLD_W, WORLD_H, WATERLINE, ROADS, PLAZA, SUN, CLOUDS, COLORS } from './config.js';
-import { makeRng, hashSeed } from './random.js';
+// Solmar Bay — top-down renderer (plain Canvas 2D).
+// drawWorld draws the whole city in WORLD coordinates: it translates by the
+// camera itself, so callers pass the camera and draw in screen space after.
+// Only plain rects, arcs and ellipses are used for shapes.
 
-// Cloud shadows are seeded too, so they drift identically every run.
-const CLOUD_SEED = makeRng(hashSeed('solmar-clouds'));
-const CLOUD_LIST = [];
-for (let i = 0; i < CLOUDS.count; i++) {
-  CLOUD_LIST.push({
-    x: CLOUD_SEED.float(0, WORLD_W),
-    y: CLOUD_SEED.float(0, WATERLINE),
-    r: CLOUD_SEED.float(CLOUDS.minR, CLOUDS.maxR),
-    speed: CLOUD_SEED.float(0.6, 1.4),
-  });
-}
+import {
+  WORLD_W, WORLD_H, VIEW_W, VIEW_H, WATERLINE, COLORS, SUN, CLOUDS, ROADS,
+  PLAZA, TOWER,
+} from './config.js';
+import { makeRng } from './random.js';
 
 export function makeCamera(w, h) {
-  return {
-    x: 0,
-    y: 0,
-    w,
-    h,
-    // Centre the view on a world point, clamped inside the map.
+  const cam = {
+    x: 0, y: 0, w, h,
     follow(tx, ty) {
-      this.x = Math.max(0, Math.min(WORLD_W - this.w, tx - this.w / 2));
-      this.y = Math.max(0, Math.min(WORLD_H - this.h, ty - this.h / 2));
+      cam.x = Math.max(0, Math.min(WORLD_W - cam.w, tx - cam.w / 2));
+      cam.y = Math.max(0, Math.min(WORLD_H - cam.h, ty - cam.h / 2));
     },
+  };
+  return cam;
+}
+
+function sunOffset() {
+  return {
+    dx: Math.cos(SUN.angle) * SUN.length,
+    dy: Math.sin(SUN.angle) * SUN.length,
   };
 }
 
-function shadowOffset() {
-  return { dx: Math.cos(SUN.angle) * SUN.length, dy: Math.sin(SUN.angle) * SUN.length };
+function drawShadow(ctx, x, y, w, h) {
+  const o = sunOffset();
+  ctx.fillStyle = SUN.color;
+  ctx.fillRect(x + o.dx - w / 2, y + o.dy - h / 2, w, h);
 }
 
-function drawShadowRect(ctx, x, y, w, h) {
-  const o = shadowOffset();
-  ctx.fillStyle = SUN.color;
-  ctx.fillRect(x - w / 2 + o.dx, y - h / 2 + o.dy, w, h);
+function drawRoads(ctx) {
+  // Sidewalk beds first (slightly wider), then asphalt, then dashes.
+  ctx.fillStyle = COLORS.sidewalk;
+  for (const vx of ROADS.vertical) {
+    ctx.fillRect(vx - ROADS.width / 2 - 10, 0, ROADS.width + 20, WATERLINE);
+  }
+  for (const hy of ROADS.horizontal) {
+    ctx.fillRect(0, hy - ROADS.width / 2 - 10, WORLD_W, ROADS.width + 20);
+  }
+  ctx.fillStyle = COLORS.road;
+  for (const vx of ROADS.vertical) {
+    ctx.fillRect(vx - ROADS.width / 2, 0, ROADS.width, WATERLINE);
+  }
+  for (const hy of ROADS.horizontal) {
+    ctx.fillRect(0, hy - ROADS.width / 2, WORLD_W, ROADS.width);
+  }
+  ctx.strokeStyle = COLORS.roadLine;
+  ctx.lineWidth = 3;
+  ctx.setLineDash([26, 22]);
+  ctx.beginPath();
+  for (const vx of ROADS.vertical) {
+    ctx.moveTo(vx, 0);
+    ctx.lineTo(vx, WATERLINE);
+  }
+  for (const hy of ROADS.horizontal) {
+    ctx.moveTo(0, hy);
+    ctx.lineTo(WORLD_W, hy);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
 }
 
 function drawBuilding(ctx, b, t) {
-  drawShadowRect(ctx, b.x, b.y, b.w, b.h);
+  drawShadow(ctx, b.x, b.y, b.w, b.h);
   ctx.fillStyle = b.facade;
   ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h);
-  // Window grid: some panes catch the sun and glow.
+  // Roof inner panel.
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.14)';
+  ctx.fillRect(b.x - b.w / 2 + 7, b.y - b.h / 2 + 7, b.w - 14, b.h - 14);
+  // Window grid: some windows lit.
   const cols = Math.max(2, Math.floor(b.w / 22));
   const rows = Math.max(2, Math.floor(b.h / 20));
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const wx = b.x - b.w / 2 + 8 + c * ((b.w - 16) / cols);
-      const wy = b.y - b.h / 2 + 8 + r * ((b.h - 16) / rows);
-      const lit = (c * 7 + r * 13 + b.storeys) % 5 === 0;
-      ctx.fillStyle = lit ? COLORS.glassLit : COLORS.glass;
-      ctx.fillRect(wx, wy, 9, 11);
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      const wx = b.x - b.w / 2 + 12 + i * ((b.w - 24) / Math.max(1, cols - 1));
+      const wy = b.y - b.h / 2 + 11 + j * ((b.h - 22) / Math.max(1, rows - 1));
+      const lit = ((i * 7 + j * 13 + b.storeys) % 5) === 0;
+      ctx.fillStyle = lit ? COLORS.glassLit : b.glass;
+      ctx.fillRect(wx - 4, wy - 4, 8, 8);
     }
   }
-  // Neon sign strip along the roofline.
   if (b.neon) {
     ctx.fillStyle = b.neonColor;
-    ctx.fillRect(b.x - b.w / 2 + 6, b.y - b.h / 2 - 4, b.w - 12, 5);
+    ctx.fillRect(b.x - b.w / 2 + 10, b.y - b.h / 2 - 5, Math.min(64, b.w - 20), 6);
   }
-  // The tower gets its gold sign and a pulsing beacon ring.
-  if (b.landmark) {
+  if (b.tower) {
+    // Landmark block: gold SOLMAR sign + pulsing beacon ring.
+    // Save/restore so textAlign/textBaseline never leak into HUD text.
     ctx.save();
-    ctx.fillStyle = '#ffd94d';
-    ctx.font = 'bold 26px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('SOLMAR', b.x, b.y);
-    const pulse = 1 + 0.12 * Math.sin(t * 2);
-    ctx.strokeStyle = 'rgba(255,217,77,0.85)';
-    ctx.lineWidth = 3;
+    ctx.fillStyle = '#ffd97a';
+    ctx.font = 'bold 26px sans-serif';
+    ctx.fillText(TOWER.name, b.x, b.y - 6);
+    ctx.strokeStyle = '#ffe9a8';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(b.x - b.w / 2 + 4, b.y - b.h / 2 + 4, b.w - 8, b.h - 8);
+    const pulse = 1 + 0.12 * Math.sin(t / 500);
     ctx.beginPath();
-    ctx.arc(b.x, b.y, (Math.max(b.w, b.h) / 2 + 18) * pulse, 0, Math.PI * 2);
+    ctx.arc(b.x, b.y, (b.w / 2 + 16) * pulse, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 217, 122, 0.85)';
+    ctx.lineWidth = 3;
     ctx.stroke();
     ctx.restore();
   }
 }
 
 function drawTree(ctx, tr) {
-  const o = shadowOffset();
+  const o = sunOffset();
   ctx.fillStyle = SUN.color;
   ctx.beginPath();
-  ctx.ellipse(tr.x + o.dx, tr.y + o.dy, tr.r, tr.r * 0.6, 0, 0, Math.PI * 2);
+  ctx.ellipse(tr.x + o.dx, tr.y + o.dy, tr.r, tr.r * 0.7, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = COLORS.trunk;
-  ctx.fillRect(tr.x - 2, tr.y - 2, 4, 6);
-  ctx.fillStyle = tr.kind === 2 ? COLORS.treeDark : COLORS.tree;
+  ctx.fillRect(tr.x - 2, tr.y - 2, 4, 8);
+  ctx.fillStyle = tr.shade ? COLORS.treeDark : COLORS.tree;
   ctx.beginPath();
-  ctx.arc(tr.x, tr.y - 4, tr.r, 0, Math.PI * 2);
+  ctx.arc(tr.x, tr.y, tr.r, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = COLORS.tree;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.10)';
   ctx.beginPath();
-  ctx.arc(tr.x - tr.r * 0.35, tr.y - tr.r * 0.45, tr.r * 0.55, 0, Math.PI * 2);
+  ctx.arc(tr.x - tr.r * 0.3, tr.y - tr.r * 0.3, tr.r * 0.45, 0, Math.PI * 2);
   ctx.fill();
 }
 
-function drawBoat(ctx, boat, t) {
-  const bob = Math.sin(t * 0.9 + boat.bob) * 3;
-  const y = boat.y + bob;
-  ctx.fillStyle = SUN.color;
-  ctx.beginPath();
-  ctx.ellipse(boat.x + 6, y + 8, boat.len / 2, 8, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = boat.hue;
-  ctx.beginPath();
-  ctx.ellipse(boat.x, y, boat.len / 2, 11, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = COLORS.glass;
-  ctx.beginPath();
-  ctx.ellipse(boat.x - boat.len * 0.12, y - 2, boat.len * 0.16, 6, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // Wake trailing behind.
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(boat.x - boat.len / 2 - 4, y + 4);
-  ctx.lineTo(boat.x - boat.len / 2 - 26, y + 10);
-  ctx.stroke();
-}
-
-function drawParkedCar(ctx, car) {
-  ctx.save();
-  ctx.translate(car.x, car.y);
-  ctx.rotate(car.angle);
-  ctx.fillStyle = SUN.color;
-  ctx.fillRect(-17, -8, 36, 18);
-  ctx.fillStyle = car.color;
-  ctx.fillRect(-18, -10, 36, 20);
-  ctx.fillStyle = COLORS.glass;
-  ctx.fillRect(-4, -8, 10, 16);
-  ctx.fillStyle = COLORS.glassLit;
-  ctx.fillRect(12, -8, 3, 16);
-  ctx.restore();
-}
-
-// Draw the whole scene for camera `cam` at time `t` (seconds).
-// `ctx` is a Canvas 2D context. Draws ground, water, roads, plaza,
-// buildings, trees, lamps, benches, boats, parked cars, cloud shadows.
 export function drawWorld(ctx, world, cam, t) {
-  const x0 = Math.max(0, cam.x - 40);
-  const y0 = Math.max(0, cam.y - 40);
-  const x1 = Math.min(WORLD_W, cam.x + cam.w + 40);
-  const y1 = Math.min(WORLD_H, cam.y + cam.h + 40);
+  ctx.save();
+  ctx.translate(-cam.x, -cam.y);
 
-  // Ground.
+  // Grass base + darker seeded patches.
   ctx.fillStyle = COLORS.grass;
-  ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+  ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+  const patchRng = makeRng(world.seed ^ 0x9e3779b9);
+  ctx.fillStyle = COLORS.grassDark;
+  for (let i = 0; i < 26; i++) {
+    const px = patchRng.float(80, WORLD_W - 80);
+    const py = patchRng.float(80, WATERLINE - 80);
+    const pr = patchRng.float(50, 150);
+    ctx.beginPath();
+    ctx.ellipse(px, py, pr, pr * 0.6, patchRng.float(0, Math.PI), 0, Math.PI * 2);
+    ctx.fill();
+  }
 
-  // Sand strip, then water.
+  // Beach strip + bay.
   ctx.fillStyle = COLORS.sand;
-  ctx.fillRect(x0, WATERLINE - 26, x1 - x0, 26);
+  ctx.fillRect(0, WATERLINE - 40, WORLD_W, 40);
   ctx.fillStyle = COLORS.water;
-  ctx.fillRect(x0, WATERLINE, x1 - x0, y1 - Math.max(y0, WATERLINE));
+  ctx.fillRect(0, WATERLINE, WORLD_W, WORLD_H - WATERLINE);
   ctx.fillStyle = COLORS.waterDeep;
-  ctx.fillRect(x0, WATERLINE + 130, x1 - x0, Math.max(0, y1 - (WATERLINE + 130)));
-
-  // Sidewalks under the roads, then the carriageways.
-  const half = ROADS.width / 2;
-  ctx.fillStyle = COLORS.sidewalk;
-  for (const vx of ROADS.vertical) ctx.fillRect(vx - half - 8, y0, ROADS.width + 16, Math.min(y1, WATERLINE) - y0);
-  for (const hy of ROADS.horizontal) ctx.fillRect(x0, hy - half - 8, x1 - x0, ROADS.width + 16);
-  ctx.fillStyle = COLORS.road;
-  for (const vx of ROADS.vertical) ctx.fillRect(vx - half, y0, ROADS.width, Math.min(y1, WATERLINE) - y0);
-  for (const hy of ROADS.horizontal) ctx.fillRect(x0, hy - half, x1 - x0, ROADS.width);
-  // Dashed centre lines.
-  ctx.fillStyle = COLORS.roadLine;
-  for (const vx of ROADS.vertical) {
-    for (let y = Math.floor(y0 / 44) * 44; y < Math.min(y1, WATERLINE); y += 44) {
-      ctx.fillRect(vx - 2, y, 4, 22);
-    }
+  for (let i = 0; i < 5; i++) {
+    ctx.fillRect(0, WATERLINE + 60 + i * 52, WORLD_W, 18);
   }
-  for (const hy of ROADS.horizontal) {
-    for (let x = Math.floor(x0 / 44) * 44; x < x1; x += 44) {
-      ctx.fillRect(x, hy - 2, 22, 4);
+  // Animated wave lines.
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 6; i++) {
+    const wy = WATERLINE + 30 + i * 46 + Math.sin(t / 900 + i) * 4;
+    ctx.beginPath();
+    ctx.moveTo(0, wy);
+    for (let x = 0; x <= WORLD_W; x += 160) {
+      ctx.lineTo(x + 80, wy + Math.sin(t / 700 + x / 90 + i) * 5);
+      ctx.lineTo(x + 160, wy);
     }
+    ctx.stroke();
   }
 
-  // Central plaza.
+  drawRoads(ctx);
+
+  // Plaza: paved circle + ring.
   ctx.fillStyle = COLORS.plaza;
   ctx.beginPath();
   ctx.arc(PLAZA.x, PLAZA.y, PLAZA.r, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = COLORS.sidewalk;
-  ctx.lineWidth = 6;
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.25)';
+  ctx.lineWidth = 4;
   ctx.beginPath();
-  ctx.arc(PLAZA.x, PLAZA.y, PLAZA.r - 4, 0, Math.PI * 2);
+  ctx.arc(PLAZA.x, PLAZA.y, PLAZA.r - 2, 0, Math.PI * 2);
   ctx.stroke();
 
-  // Fountains with an animated ripple.
+  // Fountains.
   for (const f of world.fountains) {
     ctx.fillStyle = COLORS.fountainDeep;
     ctx.beginPath();
@@ -196,76 +190,107 @@ export function drawWorld(ctx, world, cam, t) {
     ctx.fill();
     ctx.fillStyle = COLORS.fountain;
     ctx.beginPath();
-    ctx.arc(f.x, f.y, f.r - 7, 0, Math.PI * 2);
+    ctx.arc(f.x, f.y, f.r - 6, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-    ctx.lineWidth = 2;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.beginPath();
-    ctx.arc(f.x, f.y, 10 + 4 * Math.sin(t * 2 + f.x), 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.arc(f.x, f.y, 5 + Math.sin(t / 400) * 2, 0, Math.PI * 2);
+    ctx.fill();
   }
 
+  // Buildings (tower first, it is buildings[0]).
   for (const b of world.buildings) drawBuilding(ctx, b, t);
+
+  // Trees, lamps, benches.
   for (const tr of world.trees) drawTree(ctx, tr);
-
-  // Lamps: pole plus a warm glow dot.
   for (const l of world.lamps) {
-    ctx.fillStyle = '#2c2c30';
-    ctx.fillRect(l.x - 1, l.y - 1, 2, 8);
+    ctx.fillStyle = COLORS.trunk;
+    ctx.fillRect(l.x - 2, l.y - 2, 4, 4);
     ctx.fillStyle = COLORS.lampGlow;
+    ctx.globalAlpha = 0.35;
     ctx.beginPath();
-    ctx.arc(l.x, l.y - 3, 4, 0, Math.PI * 2);
+    ctx.arc(l.x, l.y, 16, 0, Math.PI * 2);
     ctx.fill();
+    ctx.globalAlpha = 1;
   }
-
-  // Benches.
   for (const bn of world.benches) {
     ctx.save();
     ctx.translate(bn.x, bn.y);
-    ctx.rotate(bn.rot);
+    ctx.rotate(bn.angle);
     ctx.fillStyle = COLORS.bench;
     ctx.fillRect(-14, -4, 28, 8);
-    ctx.fillStyle = '#6d4f30';
-    ctx.fillRect(-14, -4, 28, 3);
     ctx.restore();
   }
 
-  for (const boat of world.boats) drawBoat(ctx, boat, t);
-  for (const car of world.parkedCars) drawParkedCar(ctx, car);
-
-  // Drifting cloud shadows over everything.
-  ctx.fillStyle = COLORS.cloud;
-  for (const c of CLOUD_LIST) {
-    const span = WORLD_W + c.r * 4;
-    const cx = ((c.x + t * CLOUDS.speed * c.speed) % span) - c.r * 2;
+  // Boats in the bay.
+  for (const bo of world.boats) {
+    ctx.save();
+    ctx.translate(bo.x, bo.y);
+    ctx.rotate(bo.angle);
+    ctx.fillStyle = '#e8e8e8';
     ctx.beginPath();
-    ctx.ellipse(cx, c.y, c.r, c.r * 0.45, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, bo.len / 2, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#2f4a63';
+    ctx.fillRect(-8, -5, 16, 10);
+    ctx.restore();
+  }
+
+  // Parked cars.
+  for (const c of world.parkedCars) {
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.rotate(c.angle);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+    ctx.fillRect(-c.w / 2 + 3, -c.h / 2 + 4, c.w, c.h);
+    ctx.fillStyle = c.color;
+    ctx.fillRect(-c.w / 2, -c.h / 2, c.w, c.h);
+    ctx.fillStyle = COLORS.glass;
+    ctx.fillRect(-6, -c.h / 2 + 3, 12, c.h - 6);
+    ctx.restore();
+  }
+
+  // Drifting cloud shadows.
+  const cloudRng = makeRng(world.seed ^ 0x51ed27);
+  ctx.fillStyle = COLORS.cloud;
+  for (let i = 0; i < CLOUDS.count; i++) {
+    const baseX = cloudRng.float(0, WORLD_W);
+    const baseY = cloudRng.float(0, WATERLINE);
+    const r = cloudRng.float(CLOUDS.minR, CLOUDS.maxR);
+    const cx = ((baseX + t * CLOUDS.speed / 1000 + 200) % (WORLD_W + 400)) - 200;
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY, r, r * 0.55, 0, 0, Math.PI * 2);
     ctx.fill();
   }
+
+  ctx.restore();
 }
 
-// Minimap into rect (x, y, w, h). px,py = player world position (white dot).
 export function drawMinimap(ctx, world, px, py, x, y, w, h) {
   const sx = w / WORLD_W;
   const sy = h / WORLD_H;
-  ctx.fillStyle = COLORS.water;
+  ctx.save();
+  ctx.fillStyle = 'rgba(10, 14, 18, 0.85)';
   ctx.fillRect(x, y, w, h);
-  ctx.fillStyle = COLORS.grass;
-  ctx.fillRect(x, y, w, WATERLINE * sy);
+  ctx.fillStyle = COLORS.water;
+  ctx.fillRect(x, y + WATERLINE * sy, w, (WORLD_H - WATERLINE) * sy);
   ctx.fillStyle = COLORS.road;
-  for (const vx of ROADS.vertical) ctx.fillRect(x + vx * sx - 1, y, 2, WATERLINE * sy);
-  for (const hy of ROADS.horizontal) ctx.fillRect(x, y + hy * sy - 1, w, 2);
-  for (const b of world.buildings) {
-    ctx.fillStyle = b.landmark ? '#ffd94d' : '#e8e4d8';
-    ctx.fillRect(x + (b.x - b.w / 2) * sx, y + (b.y - b.h / 2) * sy, Math.max(2, b.w * sx), Math.max(2, b.h * sy));
+  for (const vx of ROADS.vertical) {
+    ctx.fillRect(x + vx * sx - 1, y, 2, WATERLINE * sy);
   }
+  for (const hy of ROADS.horizontal) {
+    ctx.fillRect(x, y + hy * sy - 1, w, 2);
+  }
+  ctx.fillStyle = '#ffd97a';
+  ctx.fillRect(x + TOWER.x * sx - 2, y + TOWER.y * sy - 2, 4, 4);
+  // Viewport frame.
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, w, h);
+  // Player dot.
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();
   ctx.arc(x + px * sx, y + py * sy, 3, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.arc(x + px * sx, y + py * sy, 3, 0, Math.PI * 2);
-  ctx.stroke();
+  ctx.restore();
 }

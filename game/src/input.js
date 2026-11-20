@@ -1,74 +1,102 @@
-// Solmar Bay — keyboard, mouse and gamepad input, polled every frame.
-// The game reads a plain snapshot { throttle, steer, action, brake } so the
-// loop never touches DOM events directly.
-const KEYMAP = {
-  KeyW: 'up', ArrowUp: 'up',
-  KeyS: 'down', ArrowDown: 'down',
-  KeyA: 'left', ArrowLeft: 'left',
-  KeyD: 'right', ArrowRight: 'right',
-  KeyE: 'action', Space: 'action',
-  ShiftLeft: 'brake', ShiftRight: 'brake',
-};
+// Solmar Bay — input: keyboard + mouse + gamepad.
+// The gamepad is polled every frame inside poll(); keyboard state is kept
+// in a Set of codes. All browser globals are guarded so the module imports
+// cleanly in Node for tests.
 
 export function makeInput() {
   const input = {
-    keys: Object.create(null),
-    mouse: { x: 0, y: 0, down: false },
-    padIndex: null,
-    // Test / synthetic feed: pretend a key went down or up.
-    feed(code, down) {
-      this.keys[code] = !!down;
-    },
+    keys: new Set(),
+    mouse: { x: 0, y: 0, down: false, clicked: false },
+    pad: { connected: false, steer: 0, throttle: 0, brake: false, action: false },
+    attached: false,
+
     attach(target) {
-      if (!target || typeof target.addEventListener !== 'function') return;
-      target.addEventListener('keydown', (e) => { this.keys[e.code] = true; });
-      target.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
-      target.addEventListener('mousemove', (e) => { this.mouse.x = e.clientX; this.mouse.y = e.clientY; });
-      target.addEventListener('mousedown', () => { this.mouse.down = true; });
-      target.addEventListener('mouseup', () => { this.mouse.down = false; });
-      target.addEventListener('blur', () => { this.keys = Object.create(null); });
+      if (input.attached || typeof window === 'undefined') return;
+      input.attached = true;
+      window.addEventListener('keydown', (e) => {
+        input.keys.add(e.code);
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+          e.preventDefault();
+        }
+      });
+      window.addEventListener('keyup', (e) => input.keys.delete(e.code));
+      window.addEventListener('blur', () => input.keys.clear());
+      if (target) {
+        target.addEventListener('mousemove', (e) => {
+          const r = target.getBoundingClientRect();
+          input.mouse.x = e.clientX - r.left;
+          input.mouse.y = e.clientY - r.top;
+        });
+        target.addEventListener('mousedown', () => {
+          input.mouse.down = true;
+          input.mouse.clicked = true;
+        });
+        target.addEventListener('mouseup', () => {
+          input.mouse.down = false;
+        });
+      }
     },
-    keyDown(name) {
-      for (const code of Object.keys(KEYMAP)) {
-        if (KEYMAP[code] === name && this.keys[code]) return true;
+
+    isDown(code) {
+      return input.keys.has(code);
+    },
+
+    // Movement vector from keys or the left stick. y is down-positive.
+    moveVector() {
+      let x = 0;
+      let y = 0;
+      if (input.isDown('KeyA') || input.isDown('ArrowLeft')) x -= 1;
+      if (input.isDown('KeyD') || input.isDown('ArrowRight')) x += 1;
+      if (input.isDown('KeyW') || input.isDown('ArrowUp')) y -= 1;
+      if (input.isDown('KeyS') || input.isDown('ArrowDown')) y += 1;
+      if (input.pad.connected) {
+        x += input.pad.steer;
+        y += input.pad.throttle;
+      }
+      return { x, y };
+    },
+
+    // True on the frame the E key (or pad A) is pressed.
+    actionPressed() {
+      if (input.pad.action) {
+        input.pad.action = false;
+        return true;
+      }
+      if (input.keys.has('KeyE')) {
+        input.keys.delete('KeyE');
+        return true;
       }
       return false;
     },
-    // Read the first connected gamepad, if any. Returns null when no pad
-    // is present or the environment has no gamepad API.
-    readPad() {
-      if (typeof navigator === 'undefined' || !navigator.getGamepads) return null;
-      const pads = navigator.getGamepads();
-      for (const pad of pads) {
-        if (!pad || !pad.connected) continue;
-        const dead = (v) => (Math.abs(v) < 0.12 ? 0 : v);
-        return {
-          steer: dead(pad.axes[0] || 0),
-          throttle: dead(-(pad.axes[1] || 0)),
-          brake: (pad.buttons[6] && pad.buttons[6].value) || 0,
-          action: !!(pad.buttons[0] && pad.buttons[0].pressed),
-        };
+
+    honkPressed() {
+      if (input.keys.has('KeyH')) {
+        input.keys.delete('KeyH');
+        return true;
       }
-      return null;
+      return false;
     },
-    // One polled snapshot per frame. Keyboard wins over pad on each axis.
+
+    // Poll the gamepad every frame. Sticks drive movement, A is action.
     poll() {
-      const snap = { throttle: 0, steer: 0, action: false, brake: false };
-      if (this.keyDown('up')) snap.throttle = 1;
-      else if (this.keyDown('down')) snap.throttle = -1;
-      if (this.keyDown('left')) snap.steer = -1;
-      else if (this.keyDown('right')) snap.steer = 1;
-      if (this.keyDown('action')) snap.action = true;
-      if (this.keyDown('brake')) snap.brake = true;
-      const pad = this.readPad();
-      if (pad) {
-        if (snap.throttle === 0) snap.throttle = pad.throttle;
-        if (snap.steer === 0) snap.steer = pad.steer;
-        if (pad.action) snap.action = true;
-        if (pad.brake > 0.3) snap.brake = true;
+      if (typeof navigator === 'undefined' || !navigator.getGamepads) return;
+      const pads = navigator.getGamepads();
+      let found = false;
+      for (const p of pads) {
+        if (!p || !p.connected) continue;
+        found = true;
+        const dead = (v) => (Math.abs(v) < 0.18 ? 0 : v);
+        input.pad.steer = dead(p.axes[0] || 0);
+        input.pad.throttle = dead(p.axes[1] || 0);
+        input.pad.brake = (p.buttons[6] && p.buttons[6].pressed) || false;
+        if (p.buttons[0] && p.buttons[0].pressed) input.pad.action = true;
+        break;
       }
-      if (this.mouse.down) snap.action = true;
-      return snap;
+      input.pad.connected = found;
+      if (!found) {
+        input.pad.steer = 0;
+        input.pad.throttle = 0;
+      }
     },
   };
   return input;

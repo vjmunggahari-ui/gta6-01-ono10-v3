@@ -1,39 +1,42 @@
-// Solmar Bay — tiny local static server for the screenshot pipeline.
-// Serves the workdir root so /game/index.html and /screenshots/* load over
-// HTTP with no-store headers (fresh files every run).
-// Usage: node --experimental-strip-types serve.ts [port]  (default 8080)
+// Solmar Bay — local static server for the screenshot pipeline.
+// Run: node --experimental-strip-types serve.ts [port]  (default 8080)
+// Serves the workdir root so /game/index.html loads with its modules.
+// No-store cache headers so the headless screenshots always see fresh files.
+
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const MIME: Record<string, string> = {
-  '.html': 'text/html',
-  '.js': 'text/javascript',
-  '.ts': 'text/javascript',
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.css': 'text/css',
-};
-
-const port = Number(process.argv[2] || 8080);
 const root = process.cwd();
+const port = Number(process.argv[2] || 8080);
+
+const TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.ts': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.css': 'text/css; charset=utf-8',
+};
 
 const server = createServer(async (req, res) => {
   try {
-    const url = new URL(req.url || '/', 'http://localhost');
-    let path = normalize(join(root, decodeURIComponent(url.pathname)));
-    if (!path.startsWith(root)) {
+    let path = decodeURIComponent(new URL(req.url || '/', 'http://x').pathname);
+    if (path === '/') path = '/game/index.html';
+    const file = normalize(join(root, path));
+    if (!file.startsWith(root)) {
       res.writeHead(403);
       res.end('forbidden');
       return;
     }
-    if (url.pathname === '/') path = join(root, 'game', 'index.html');
-    const body = await readFile(path);
+    const data = await readFile(file);
     res.writeHead(200, {
-      'content-type': MIME[extname(path)] || 'application/octet-stream',
+      'content-type': TYPES[extname(file)] || 'application/octet-stream',
       'cache-control': 'no-store',
     });
-    res.end(body);
+    res.end(data);
   } catch {
     res.writeHead(404);
     res.end('not found');
@@ -41,5 +44,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, () => {
-  console.log(`Solmar Bay serving ${root} on http://localhost:${port}`);
+  console.log(`Solmar Bay server on http://127.0.0.1:${port}/`);
 });

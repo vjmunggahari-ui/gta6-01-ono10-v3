@@ -14,8 +14,8 @@
 // arrow, a clock and speed readout, a health bar, a district name, skid
 // marks and particles, and screens that tell the player what to do next.
 //
-// A2 touch: the minimap also marks the two plaza fountains as blue dots,
-// so the squares read as places on the map, not empty blocks.
+// The minimap also marks the two plaza fountains as blue dots, so the
+// squares read as places on the map, not empty blocks.
 
 import { CLOUDS, COLORS, DISTRICTS, ROADS_X, ROADS_Y, ROAD_HALF, SEA_TOP, BEACH_TOP, SUN, VIEW, WORLD } from './config.js';
 import { hash01 } from './random.js';
@@ -27,7 +27,7 @@ function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
-function smoothstep(a, b, x) {
+function ease(a, b, x) {
   const t = clamp((x - a) / (b - a), 0, 1);
   return t * t * (3 - 2 * t);
 }
@@ -44,21 +44,21 @@ export function roundRect(ctx, x, y, w, h, r) {
 }
 
 // Filled circle at (x, y) with the current fill style.
-function disc(ctx, x, y, r) {
+function fillDisc(ctx, x, y, r) {
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fill();
 }
 
 // Stroked circle at (x, y) with the current stroke style and line width.
-function ring(ctx, x, y, r) {
+function strokeDisc(ctx, x, y, r) {
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.stroke();
 }
 
 // Filled rectangle, setting the fill style first.
-function frect(ctx, x, y, w, h, color) {
+function fillBox(ctx, x, y, w, h, color) {
   ctx.fillStyle = color;
   ctx.fillRect(x, y, w, h);
 }
@@ -67,9 +67,9 @@ function frect(ctx, x, y, w, h, color) {
 export function darknessAt(dayTime) {
   const p = ((dayTime % 1) + 1) % 1;
   if (p < 0.16) return 1;
-  if (p < 0.30) return 1 - smoothstep(0.16, 0.30, p);
+  if (p < 0.30) return 1 - ease(0.16, 0.30, p);
   if (p < 0.70) return 0;
-  if (p < 0.82) return smoothstep(0.70, 0.82, p) * 0.85;
+  if (p < 0.82) return ease(0.70, 0.82, p) * 0.85;
   return 0.85;
 }
 
@@ -98,14 +98,14 @@ function clockText(dayTime) {
 
 // --- ground -----------------------------------------------------------------
 
-function drawGround(ctx, game) {
+function paintGround(ctx, game) {
   const cam = game.camera;
   const x0 = Math.max(0, cam.x - 40);
   const y0 = Math.max(0, cam.y - 40);
   const x1 = Math.min(WORLD.w, cam.x + VIEW.w + 40);
   const y1 = Math.min(WORLD.h, cam.y + VIEW.h + 40);
   // Grass everywhere, then the beach band and the sea.
-  frect(ctx, x0, y0, x1 - x0, y1 - y0, COLORS.grass);
+  fillBox(ctx, x0, y0, x1 - x0, y1 - y0, COLORS.grass);
   // Mown stripes across the grass, cheap and unmistakable from above.
   ctx.fillStyle = COLORS.grassDark;
   const stripe = 120;
@@ -116,11 +116,11 @@ function drawGround(ctx, game) {
   if (y1 > BEACH_TOP) {
     const top = Math.max(y0, BEACH_TOP);
     const bottom = Math.min(y1, SEA_TOP);
-    frect(ctx, x0, top, x1 - x0, bottom - top, COLORS.sand);
+    fillBox(ctx, x0, top, x1 - x0, bottom - top, COLORS.sand);
   }
   if (y1 > SEA_TOP) {
     const top = Math.max(y0, SEA_TOP);
-    frect(ctx, x0, top, x1 - x0, y1 - top, COLORS.sea);
+    fillBox(ctx, x0, top, x1 - x0, y1 - top, COLORS.sea);
     // Slow swell lines, drifting with game time.
     ctx.strokeStyle = 'rgba(255,255,255,0.18)';
     ctx.lineWidth = 2;
@@ -138,7 +138,7 @@ function drawGround(ctx, game) {
   }
 }
 
-function drawRoads(ctx, game) {
+function paintRoads(ctx, game) {
   const cam = game.camera;
   ctx.fillStyle = COLORS.road;
   for (const rx of ROADS_X) {
@@ -178,7 +178,7 @@ function drawRoads(ctx, game) {
 // Soft cloud shadows drift east to west in daylight and fade out at night.
 // Each cloud's home position comes from a coordinate hash, so the pattern
 // is the same on every run and only the drift depends on game time.
-function drawCloudShadows(ctx, game) {
+function paintClouds(ctx, game) {
   const dark = darknessAt(game.dayTime);
   if (dark > 0.85) return;
   const cam = game.camera;
@@ -203,7 +203,7 @@ function drawCloudShadows(ctx, game) {
 // from the sun: west in the morning, east in the afternoon, always a
 // little to the south. The shadow length grows with the building's
 // storeys and shrinks to nothing once the sun is high.
-function shadowOffset(game, stories) {
+function sunShadow(game, stories) {
   const p = ((game.dayTime % 1) + 1) % 1;
   const dark = darknessAt(game.dayTime);
   if (dark <= 0.05 || dark >= SUN.lowSunDark) return null;
@@ -215,7 +215,7 @@ function shadowOffset(game, stories) {
 // --- buildings & props ------------------------------------------------------
 
 // Roof detail: a pool, a garden, or plain tar with a hatch.
-function drawRoof(ctx, b) {
+function paintRoof(ctx, b) {
   if (b.roof === 'pool') {
     ctx.fillStyle = '#4aa8d9';
     roundRect(ctx, b.x + b.w * 0.2, b.y + b.h * 0.2, b.w * 0.6, b.h * 0.55, 6);
@@ -225,13 +225,13 @@ function drawRoof(ctx, b) {
     roundRect(ctx, b.x + b.w * 0.15, b.y + b.h * 0.15, b.w * 0.7, b.h * 0.7, 8);
     ctx.fill();
   } else {
-    frect(ctx, b.x + b.w * 0.42, b.y + b.h * 0.42, b.w * 0.16, b.h * 0.16, 'rgba(0,0,0,0.18)');
+    fillBox(ctx, b.x + b.w * 0.42, b.y + b.h * 0.42, b.w * 0.16, b.h * 0.16, 'rgba(0,0,0,0.18)');
   }
 }
 
 // Windows: a grid sized by the footprint; after dark, a seeded half of
 // them glow warm, so the skyline reads differently at night than at noon.
-function drawWindows(ctx, b, night) {
+function paintWindows(ctx, b, night) {
   const cols = Math.max(2, Math.floor(b.w / 34));
   const rows = Math.max(1, Math.min(6, Math.floor(b.h / 34)));
   for (let cx = 0; cx < cols; cx += 1) {
@@ -252,7 +252,7 @@ function drawWindows(ctx, b, night) {
 
 // Signage: a neon strip on the south face after dark, a rooftop beacon on
 // tall towers, and the Solmar Tower's gold sign and beacon ring.
-function drawSignage(ctx, b, night, time) {
+function paintSigns(ctx, b, night, time) {
   if (b.neon && night) {
     ctx.fillStyle = b.neon;
     ctx.shadowColor = b.neon;
@@ -262,7 +262,7 @@ function drawSignage(ctx, b, night, time) {
   }
   if (b.stories >= 10) {
     ctx.fillStyle = (time % 1 < 0.5) ? '#ff5c5c' : '#7a2020';
-    disc(ctx, b.x + b.w / 2, b.y + 6, 3);
+    fillDisc(ctx, b.x + b.w / 2, b.y + 6, 3);
   }
   if (b.landmark) {
     ctx.fillStyle = 'rgba(12,16,24,0.85)';
@@ -275,37 +275,37 @@ function drawSignage(ctx, b, night, time) {
     ctx.textAlign = 'left';
     ctx.strokeStyle = (time % 1 < 0.5) ? 'rgba(255,92,92,0.9)' : 'rgba(255,92,92,0.25)';
     ctx.lineWidth = 2;
-    ring(ctx, b.x + b.w / 2, b.y + 6, 8);
+    strokeDisc(ctx, b.x + b.w / 2, b.y + 6, 8);
   }
 }
 
-function drawBuildings(ctx, game) {
+function paintBuildings(ctx, game) {
   const cam = game.camera;
   const night = isNight(game);
   for (const b of game.world.buildings) {
     if (b.x + b.w < cam.x - 20 || b.x > cam.x + VIEW.w + 20) continue;
     if (b.y + b.h < cam.y - 20 || b.y > cam.y + VIEW.h + 20) continue;
     // Low-sun shadow first, under the building itself.
-    const sh = shadowOffset(game, b.stories || 1);
+    const sh = sunShadow(game, b.stories || 1);
     if (sh) {
-      frect(ctx, b.x + sh.dx, b.y + sh.dy, b.w, b.h, 'rgba(10, 16, 28, 0.20)');
+      fillBox(ctx, b.x + sh.dx, b.y + sh.dy, b.w, b.h, 'rgba(10, 16, 28, 0.20)');
     }
     // Drop shadow, then the block itself.
-    frect(ctx, b.x + 5, b.y + 6, b.w, b.h, 'rgba(0,0,0,0.25)');
-    frect(ctx, b.x, b.y, b.w, b.h, b.color);
+    fillBox(ctx, b.x + 5, b.y + 6, b.w, b.h, 'rgba(0,0,0,0.25)');
+    fillBox(ctx, b.x, b.y, b.w, b.h, b.color);
     ctx.strokeStyle = 'rgba(0,0,0,0.35)';
     ctx.lineWidth = 2;
     ctx.strokeRect(b.x + 1, b.y + 1, b.w - 2, b.h - 2);
-    drawRoof(ctx, b);
-    drawWindows(ctx, b, night);
-    drawSignage(ctx, b, night, game.time);
+    paintRoof(ctx, b);
+    paintWindows(ctx, b, night);
+    paintSigns(ctx, b, night, game.time);
   }
 }
 
-function drawPierAndBoats(ctx, game) {
+function paintPierBoats(ctx, game) {
   // Pier: planks out into the sea at the marina.
   const pier = game.world.pier;
-  frect(ctx, pier.x, pier.y, pier.w, pier.h, '#8a6a45');
+  fillBox(ctx, pier.x, pier.y, pier.w, pier.h, '#8a6a45');
   ctx.strokeStyle = 'rgba(0,0,0,0.3)';
   ctx.lineWidth = 1;
   for (let y = pier.y + 12; y < pier.y + pier.h; y += 14) {
@@ -329,37 +329,37 @@ function drawPierAndBoats(ctx, game) {
 }
 
 // Plaza fountains: a stone rim, water that shimmers with game time.
-function drawFountains(ctx, game) {
+function paintFountains(ctx, game) {
   const cam = game.camera;
   for (const f of game.world.fountains || []) {
     if (f.x + f.r < cam.x - 20 || f.x - f.r > cam.x + VIEW.w + 20) continue;
     if (f.y + f.r < cam.y - 20 || f.y - f.r > cam.y + VIEW.h + 20) continue;
     ctx.fillStyle = '#9a938a';
-    disc(ctx, f.x, f.y, f.r);
+    fillDisc(ctx, f.x, f.y, f.r);
     ctx.fillStyle = '#4aa8d9';
-    disc(ctx, f.x, f.y, f.r - 6);
+    fillDisc(ctx, f.x, f.y, f.r - 6);
     ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.lineWidth = 2;
     for (let i = 0; i < 3; i += 1) {
       const rr = (f.r - 12) * (0.3 + 0.3 * i) + Math.sin(game.time * 1.5 + i * 2) * 2;
-      ring(ctx, f.x, f.y, Math.max(4, rr));
+      strokeDisc(ctx, f.x, f.y, Math.max(4, rr));
     }
     ctx.fillStyle = '#e8e6da';
-    disc(ctx, f.x, f.y, 6);
+    fillDisc(ctx, f.x, f.y, 6);
   }
 }
 
-function drawTreesAndBenches(ctx, game) {
+function paintTreesBenches(ctx, game) {
   const cam = game.camera;
   for (const t of game.world.trees) {
     if (t.x < cam.x - 30 || t.x > cam.x + VIEW.w + 30) continue;
     if (t.y < cam.y - 30 || t.y > cam.y + VIEW.h + 30) continue;
     ctx.fillStyle = COLORS.treeDark;
-    disc(ctx, t.x + 2, t.y + 3, t.r);
+    fillDisc(ctx, t.x + 2, t.y + 3, t.r);
     ctx.fillStyle = COLORS.tree;
-    disc(ctx, t.x, t.y, t.r);
+    fillDisc(ctx, t.x, t.y, t.r);
     ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    disc(ctx, t.x - t.r * 0.3, t.y - t.r * 0.3, t.r * 0.45);
+    fillDisc(ctx, t.x - t.r * 0.3, t.y - t.r * 0.3, t.r * 0.45);
   }
   for (const bench of game.world.benches) {
     ctx.save();
@@ -372,35 +372,35 @@ function drawTreesAndBenches(ctx, game) {
 }
 
 // Street lamps: a post by day, a pool of warm light by night.
-function drawLamps(ctx, game) {
+function paintLamps(ctx, game) {
   const cam = game.camera;
   const night = isNight(game);
   for (const lamp of game.world.lamps) {
     if (lamp.x < cam.x - 40 || lamp.x > cam.x + VIEW.w + 40) continue;
     if (lamp.y < cam.y - 40 || lamp.y > cam.y + VIEW.h + 40) continue;
-    frect(ctx, lamp.x - 2, lamp.y - 2, 4, 4, '#2a2f38');
+    fillBox(ctx, lamp.x - 2, lamp.y - 2, 4, 4, '#2a2f38');
     if (night) {
       const glow = ctx.createRadialGradient(lamp.x, lamp.y, 2, lamp.x, lamp.y, 46);
       glow.addColorStop(0, 'rgba(255,214,120,0.55)');
       glow.addColorStop(1, 'rgba(255,214,120,0)');
       ctx.fillStyle = glow;
-      disc(ctx, lamp.x, lamp.y, 46);
+      fillDisc(ctx, lamp.x, lamp.y, 46);
       ctx.fillStyle = '#ffe9a8';
-      disc(ctx, lamp.x, lamp.y, 4);
+      fillDisc(ctx, lamp.x, lamp.y, 4);
     }
   }
 }
 
-function drawProps(ctx, game) {
-  drawPierAndBoats(ctx, game);
-  drawFountains(ctx, game);
-  drawTreesAndBenches(ctx, game);
-  drawLamps(ctx, game);
+function paintProps(ctx, game) {
+  paintPierBoats(ctx, game);
+  paintFountains(ctx, game);
+  paintTreesBenches(ctx, game);
+  paintLamps(ctx, game);
 }
 
 // --- vehicles, people, marks -----------------------------------------------
 
-function drawCarShape(ctx, car, night, time) {
+function paintCar(ctx, car, night, time) {
   ctx.save();
   ctx.translate(car.x, car.y);
   ctx.rotate(car.angle);
@@ -454,7 +454,7 @@ function drawCarShape(ctx, car, night, time) {
       flash.addColorStop(0, red ? 'rgba(255,46,46,0.35)' : 'rgba(46,107,255,0.35)');
       flash.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = flash;
-      disc(ctx, 0, 0, 60);
+      fillDisc(ctx, 0, 0, 60);
     }
   }
   if (car.kind === 'player') {
@@ -466,18 +466,18 @@ function drawCarShape(ctx, car, night, time) {
   ctx.restore();
 }
 
-function drawCars(ctx, game) {
+function paintCars(ctx, game) {
   const night = isNight(game);
   for (const car of game.cars) {
-    drawCarShape(ctx, car, night, game.time);
+    paintCar(ctx, car, night, game.time);
     if (car.wrecked) {
       ctx.fillStyle = 'rgba(60,60,60,0.5)';
-      disc(ctx, car.x + Math.sin(game.time * 3) * 6, car.y - 14, 8 + Math.sin(game.time * 2) * 2);
+      fillDisc(ctx, car.x + Math.sin(game.time * 3) * 6, car.y - 14, 8 + Math.sin(game.time * 2) * 2);
     }
   }
 }
 
-function drawPeds(ctx, game) {
+function paintPeds(ctx, game) {
   for (const ped of game.peds) {
     ctx.save();
     ctx.translate(ped.x, ped.y);
@@ -489,7 +489,7 @@ function drawPeds(ctx, game) {
       ctx.ellipse(0, 0, 12, 6, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#c94f42';
-      disc(ctx, 11, 0, 4);
+      fillDisc(ctx, 11, 0, 4);
     } else {
       ctx.rotate(ped.angle);
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
@@ -497,7 +497,7 @@ function drawPeds(ctx, game) {
       ctx.ellipse(2, 3, 9, 6, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = ped.color;
-      disc(ctx, 0, 0, 9);
+      fillDisc(ctx, 0, 0, 9);
       // Fleeing peds flail: arms out.
       if (ped.state === 'flee') {
         ctx.strokeStyle = ped.color;
@@ -510,13 +510,13 @@ function drawPeds(ctx, game) {
         ctx.stroke();
       }
       ctx.fillStyle = '#2a2118';
-      disc(ctx, 4, 0, 4);
+      fillDisc(ctx, 4, 0, 4);
     }
     ctx.restore();
   }
 }
 
-function drawPlayerOnFoot(ctx, game) {
+function paintPlayer(ctx, game) {
   const p = game.player;
   if (!p.onFoot) return;
   ctx.save();
@@ -527,9 +527,9 @@ function drawPlayerOnFoot(ctx, game) {
   ctx.fill();
   ctx.rotate(p.angle);
   ctx.fillStyle = COLORS.player;
-  disc(ctx, 0, 0, 12);
+  fillDisc(ctx, 0, 0, 12);
   ctx.fillStyle = '#2a2118';
-  disc(ctx, 5, 0, 5);
+  fillDisc(ctx, 5, 0, 5);
   // Facing tick, and a punch arc flash while the fist is out.
   ctx.fillStyle = '#fff';
   ctx.beginPath();
@@ -556,7 +556,7 @@ function drawPlayerOnFoot(ctx, game) {
   ctx.fillText('JAX', p.x, p.y + 32);
 }
 
-function drawSkidAndParticles(ctx, game) {
+function paintSkids(ctx, game) {
   ctx.strokeStyle = 'rgba(20,20,24,0.45)';
   ctx.lineWidth = 4;
   ctx.lineCap = 'round';
@@ -571,14 +571,14 @@ function drawSkidAndParticles(ctx, game) {
   for (const pt of game.particles || []) {
     ctx.globalAlpha = Math.max(0, pt.t / 0.8);
     ctx.fillStyle = pt.color || '#ffb02e';
-    disc(ctx, pt.x, pt.y, pt.r || 3);
+    fillDisc(ctx, pt.x, pt.y, pt.r || 3);
   }
   ctx.globalAlpha = 1;
 }
 
 // --- waypoint, night, minimap ------------------------------------------------
 
-function currentTarget(game) {
+function missionTarget(game) {
   const m = game.missions && game.missions.current;
   if (!m) return null;
   const step = m.def.steps[m.step];
@@ -586,8 +586,8 @@ function currentTarget(game) {
   return { x: step.x, y: step.y, label: step.label, color: '#ffd23f' };
 }
 
-function drawWaypoint(ctx, game) {
-  const target = currentTarget(game);
+function paintWaypoint(ctx, game) {
+  const target = missionTarget(game);
   if (!target) return;
   const cam = game.camera;
   const p = game.player;
@@ -601,10 +601,10 @@ function drawWaypoint(ctx, game) {
     ctx.fillStyle = `rgba(255,210,63,${0.10 + 0.08 * pulse})`;
     ctx.fillRect(sx - 3, sy - 260, 6, 260);
     ctx.fillStyle = '#ffd23f';
-    disc(ctx, sx, sy, 10 + 3 * pulse);
+    fillDisc(ctx, sx, sy, 10 + 3 * pulse);
     ctx.strokeStyle = '#20242e';
     ctx.lineWidth = 2;
-    ring(ctx, sx, sy, 10 + 3 * pulse);
+    strokeDisc(ctx, sx, sy, 10 + 3 * pulse);
     ctx.fillStyle = '#20242e';
     ctx.font = 'bold 11px sans-serif';
     ctx.textAlign = 'center';
@@ -633,7 +633,7 @@ function drawWaypoint(ctx, game) {
   }
 }
 
-function drawNight(ctx, game) {
+function paintNight(ctx, game) {
   const dark = darknessAt(game.dayTime);
   if (dark <= 0.01) return;
   ctx.fillStyle = `rgba(8,12,38,${(dark * 0.42).toFixed(3)})`;
@@ -648,7 +648,7 @@ function drawNight(ctx, game) {
   }
 }
 
-function drawMinimap(ctx, game) {
+function paintMap(ctx, game) {
   const mw = 208;
   const mh = 156;
   const mx = VIEW.w - mw - 14;
@@ -688,23 +688,23 @@ function drawMinimap(ctx, game) {
     ctx.stroke();
   }
   // Mission marker, pulsing; police as red dots; fountains as blue dots.
-  const target = currentTarget(game);
+  const target = missionTarget(game);
   if (target) {
     const pulse = 3 + 2 * Math.sin(game.time * 4);
     ctx.fillStyle = '#ffd23f';
-    disc(ctx, mx + target.x * sx, my + target.y * sy, pulse);
+    fillDisc(ctx, mx + target.x * sx, my + target.y * sy, pulse);
     ctx.strokeStyle = '#20242e';
     ctx.lineWidth = 1.5;
-    ring(ctx, mx + target.x * sx, my + target.y * sy, pulse);
+    strokeDisc(ctx, mx + target.x * sx, my + target.y * sy, pulse);
   }
   for (const car of game.cars) {
     if (car.kind !== 'police') continue;
     ctx.fillStyle = '#ff2e2e';
-    disc(ctx, mx + car.x * sx, my + car.y * sy, 3);
+    fillDisc(ctx, mx + car.x * sx, my + car.y * sy, 3);
   }
   for (const f of game.world.fountains || []) {
     ctx.fillStyle = '#4aa8d9';
-    disc(ctx, mx + f.x * sx, my + f.y * sy, 2.5);
+    fillDisc(ctx, mx + f.x * sx, my + f.y * sy, 2.5);
   }
   // Viewport rectangle, then the player arrow.
   ctx.strokeStyle = 'rgba(255,255,255,0.85)';
@@ -737,7 +737,7 @@ function drawMinimap(ctx, game) {
 
 // --- HUD & screens -----------------------------------------------------------
 
-function drawStar(ctx, x, y, r, lit) {
+function paintStar(ctx, x, y, r, lit) {
   ctx.save();
   ctx.translate(x, y);
   ctx.beginPath();
@@ -758,7 +758,7 @@ function drawStar(ctx, x, y, r, lit) {
   ctx.restore();
 }
 
-function drawHudTopLeft(ctx, game) {
+function paintHudTop(ctx, game) {
   const p = game.player;
   ctx.textAlign = 'left';
   // Cash, health, and the last crime — each on its own line.
@@ -785,11 +785,11 @@ function drawHudTopLeft(ctx, game) {
   }
 }
 
-function drawWantedStars(ctx, game) {
+function paintStars(ctx, game) {
   const stars = Math.max(0, Math.min(5, Math.floor(game.wanted)));
   const cx = VIEW.w / 2;
   for (let i = 0; i < 5; i += 1) {
-    drawStar(ctx, cx - 66 + i * 33, 38, 13, i < stars);
+    paintStar(ctx, cx - 66 + i * 33, 38, 13, i < stars);
   }
   if (stars >= 3) {
     ctx.fillStyle = '#ff5c5c';
@@ -800,7 +800,7 @@ function drawWantedStars(ctx, game) {
   }
 }
 
-function drawJobPanel(ctx, game) {
+function paintJob(ctx, game) {
   const prog = game.missions.progress ? game.missions.progress() : null;
   if (prog) {
     ctx.fillStyle = COLORS.hudBg;
@@ -843,7 +843,7 @@ function drawJobPanel(ctx, game) {
   }
 }
 
-function drawClockPanel(ctx, game) {
+function paintClock(ctx, game) {
   const p = game.player;
   ctx.fillStyle = COLORS.hudBg;
   roundRect(ctx, VIEW.w - 264, VIEW.h - 58, 250, 44, 8);
@@ -859,7 +859,7 @@ function drawClockPanel(ctx, game) {
   ctx.textAlign = 'left';
 }
 
-function drawMessages(ctx, game) {
+function paintNotes(ctx, game) {
   // Messages, newest last, fading with age.
   ctx.font = '14px sans-serif';
   let my = VIEW.h - 116;
@@ -879,15 +879,15 @@ function drawMessages(ctx, game) {
   ctx.globalAlpha = 1;
 }
 
-function drawHUD(ctx, game) {
-  drawHudTopLeft(ctx, game);
-  drawWantedStars(ctx, game);
-  drawJobPanel(ctx, game);
-  drawClockPanel(ctx, game);
-  drawMessages(ctx, game);
+function paintHud(ctx, game) {
+  paintHudTop(ctx, game);
+  paintStars(ctx, game);
+  paintJob(ctx, game);
+  paintClock(ctx, game);
+  paintNotes(ctx, game);
 }
 
-function drawTitle(ctx, game) {
+function paintTitle(ctx, game) {
   ctx.fillStyle = 'rgba(8,10,18,0.72)';
   ctx.fillRect(0, 0, VIEW.w, VIEW.h);
   ctx.textAlign = 'center';
@@ -920,7 +920,7 @@ function drawTitle(ctx, game) {
   ctx.textAlign = 'left';
 }
 
-function drawPause(ctx, game) {
+function paintPause(ctx, game) {
   ctx.fillStyle = 'rgba(8,10,18,0.6)';
   ctx.fillRect(0, 0, VIEW.w, VIEW.h);
   ctx.textAlign = 'center';
@@ -932,7 +932,7 @@ function drawPause(ctx, game) {
   ctx.textAlign = 'left';
 }
 
-function drawBusted(ctx, game) {
+function paintBusted(ctx, game) {
   ctx.fillStyle = 'rgba(24,6,8,0.78)';
   ctx.fillRect(0, 0, VIEW.w, VIEW.h);
   ctx.textAlign = 'center';
@@ -953,24 +953,24 @@ export function drawFrame(ctx, game) {
   ctx.save();
   ctx.clearRect(0, 0, VIEW.w, VIEW.h);
   ctx.translate(-Math.round(game.camera.x), -Math.round(game.camera.y));
-  drawGround(ctx, game);
-  drawRoads(ctx, game);
-  drawCloudShadows(ctx, game);
-  drawSkidAndParticles(ctx, game);
-  drawBuildings(ctx, game);
-  drawProps(ctx, game);
-  drawWaypoint(ctx, game);
-  drawCars(ctx, game);
-  drawPeds(ctx, game);
-  drawPlayerOnFoot(ctx, game);
-  drawNight(ctx, game);
+  paintGround(ctx, game);
+  paintRoads(ctx, game);
+  paintClouds(ctx, game);
+  paintSkids(ctx, game);
+  paintBuildings(ctx, game);
+  paintProps(ctx, game);
+  paintWaypoint(ctx, game);
+  paintCars(ctx, game);
+  paintPeds(ctx, game);
+  paintPlayer(ctx, game);
+  paintNight(ctx, game);
   ctx.restore();
   // Screen-space UI sits on top of the world.
-  drawMinimap(ctx, game);
+  paintMap(ctx, game);
   if (game.screen === 'play' || game.screen === 'pause' || game.screen === 'busted') {
-    drawHUD(ctx, game);
+    paintHud(ctx, game);
   }
-  if (game.screen === 'title') drawTitle(ctx, game);
-  else if (game.screen === 'pause') drawPause(ctx, game);
-  else if (game.screen === 'busted') drawBusted(ctx, game);
+  if (game.screen === 'title') paintTitle(ctx, game);
+  else if (game.screen === 'pause') paintPause(ctx, game);
+  else if (game.screen === 'busted') paintBusted(ctx, game);
 }

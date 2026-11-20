@@ -1,11 +1,11 @@
 // Solmar Bay (v6) — every number the game agrees on, in one place.
 //
 // One job: hold the constants so the modules never disagree about the
-// city. v6 adds the cloud-shadow and landmark tuning on top of v5's set
-// (per-star wanted table, mission timers, day/night cycle, named
-// districts, camera model). The values below are the game's balance;
-// changing one changes how the city plays, so a tuning change is a
-// deliberate decision, not a cleanup.
+// city. The values below are the game's balance; changing one changes
+// how the city plays, so a tuning change is a deliberate decision, not
+// a cleanup. v6 adds the cloud-shadow and landmark tuning on top of the
+// earlier set (per-star wanted table, mission timers, day/night cycle,
+// named districts, camera model).
 
 // View and world size, fixed step, save slot, subsystem seeds.
 export const VIEW = {
@@ -24,7 +24,33 @@ export const SEEDS = {
   peds: 4242,
 };
 
-// --- road network -----------------------------------------------------------
+// --- sky: clouds and low sun ----------------------------------------------
+// Cloud shadows drift across the city in daylight; the sun sits low near
+// dawn and dusk, so buildings throw long shadows then and none at noon.
+export const CLOUDS = {
+  count: 6,
+  driftPerSec: 14,
+  minR: 180,
+  maxR: 320,
+  alpha: 0.10,
+};
+export const SUN = {
+  maxLenPerStorey: 14,
+  lowSunDark: 0.55,
+};
+
+// --- day / night ----------------------------------------------------------
+// One full day lasts DAY.lengthSec seconds of play. Phase 0 = midnight.
+export const DAY = {
+  lengthSec: 240,
+  dawn: 0.24,
+  noon: 0.5,
+  dusk: 0.76,
+  nightTint: 'rgba(10, 14, 42, 0.34)',
+  duskTint: 'rgba(64, 32, 16, 0.18)',
+};
+
+// --- road network ---------------------------------------------------------
 // Six north-south roads, five east-west. ROAD_HALF is the half-width of
 // the tarmac; LANE_OFFSET is the right-hand lane centre from the
 // centreline. The beach and the sea run along the south edge; the marina
@@ -43,7 +69,7 @@ export const PIER = {
   h: 190,
 };
 
-// --- districts --------------------------------------------------------------
+// --- districts ------------------------------------------------------------
 // Each block of the city belongs to one district; the world builder picks
 // building palettes and density from the district under the block. The
 // seven districts tile the whole map with no gaps, so every lookup
@@ -68,7 +94,7 @@ export const PLACES = {
   beach: { x: 1200, y: 2280, label: 'Solmar Beach' },
 };
 
-// --- palette ----------------------------------------------------------------
+// --- palette --------------------------------------------------------------
 export const COLORS = {
   grass: '#79a854',
   grassDark: '#6d9c49',
@@ -90,33 +116,7 @@ export const COLORS = {
   neon: ['#ff2e88', '#2ee6ff', '#ffe14d', '#7dff5e'],
 };
 
-// --- sky: clouds and low sun ------------------------------------------------
-// Cloud shadows drift across the city in daylight; the sun sits low near
-// dawn and dusk, so buildings throw long shadows then and none at noon.
-export const CLOUDS = {
-  count: 6,
-  driftPerSec: 14,
-  minR: 180,
-  maxR: 320,
-  alpha: 0.10,
-};
-export const SUN = {
-  maxLenPerStorey: 14,
-  lowSunDark: 0.55,
-};
-
-// --- day / night ------------------------------------------------------------
-// One full day lasts DAY.lengthSec seconds of play. Phase 0 = midnight.
-export const DAY = {
-  lengthSec: 240,
-  dawn: 0.24,
-  noon: 0.5,
-  dusk: 0.76,
-  nightTint: 'rgba(10, 14, 42, 0.34)',
-  duskTint: 'rgba(64, 32, 16, 0.18)',
-};
-
-// --- player -----------------------------------------------------------------
+// --- player ---------------------------------------------------------------
 export const PLAYER = {
   health: 100,
   radius: 13,
@@ -129,7 +129,7 @@ export const PLAYER = {
   enterRange: 52,
 };
 
-// --- cars -------------------------------------------------------------------
+// --- cars -----------------------------------------------------------------
 export const CAR = {
   maxSpeed: 560,
   accel: 430,
@@ -143,7 +143,7 @@ export const CAR = {
   crashDamage: 12,
 };
 
-// --- traffic & pedestrians --------------------------------------------------
+// --- traffic & pedestrians ------------------------------------------------
 export const TRAFFIC_COUNT = 14;
 export const PED_COUNT = 26;
 export const TRAFFIC = {
@@ -165,7 +165,7 @@ export const PED = {
   idleChance: 0.2,
 };
 
-// --- wanted -----------------------------------------------------------------
+// --- wanted ---------------------------------------------------------------
 export const MAX_POLICE = 5;
 export const WANTED = {
   max: 5,
@@ -187,7 +187,7 @@ export const WANTED = {
   ],
 };
 
-// --- police -----------------------------------------------------------------
+// --- police ---------------------------------------------------------------
 export const POLICE = {
   spawnDistance: 650,
   despawnDistance: 1100,
@@ -199,7 +199,7 @@ export const POLICE = {
   giveUpDistance: 1400,
 };
 
-// --- missions ---------------------------------------------------------------
+// --- missions -------------------------------------------------------------
 export const MISSIONS = {
   fareTimeoutSec: 75,
   jobTimeoutSec: 240,
@@ -208,7 +208,7 @@ export const MISSIONS = {
   jobPay: 350,
 };
 
-// --- camera, effects, economy ----------------------------------------------
+// --- camera, effects, economy --------------------------------------------
 export const SKID_MAX = 220;
 export const CAMERA = {
   lookahead: 0.35,

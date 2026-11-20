@@ -1,17 +1,23 @@
 // Solmar Bay (v6) — the city itself: districts, blocks, buildings, trees,
 // boats, parked cars, lamps, benches, fountains and piers.
-// One job: build the same city from the same seed, every time.
 //
-// v6 vs v5: two plaza blocks carry fountains instead of buildings (an Old
-// Town square and a Downtown square, with benches and trees around the
-// water); the tallest downtown tower is flagged as the Solmar Tower
-// landmark; some tall downtown facades carry neon signs. Collisions still
-// run against the coarse grid index, and a body whose centre lands inside
-// a building is pushed out along the shallowest side.
+// One job: build the same city from the same seed, every time. Two plaza
+// blocks carry fountains instead of buildings (an Old Town square and a
+// Downtown square, with benches and trees around the water); the tallest
+// downtown tower is flagged as the Solmar Tower landmark; some tall
+// downtown facades carry neon signs. Collisions run against a coarse
+// grid index, and a body whose centre lands inside a building is pushed
+// out along the shallowest side.
+//
+// The draw order below is the city's fingerprint: the same seed must
+// produce the same city, so the random draws happen in exactly the same
+// order as the reference build. Do not reorder draws inside a block,
+// a boat, or a parked car.
 
 import { BEACH_TOP, COLORS, DISTRICTS, MARINA_LEFT, PIER, PLACES, ROADS_X, ROADS_Y, ROAD_HALF, SEA_TOP, WORLD } from './config.js';
 import { int, mulberry32, pick, range } from './random.js';
 
+// Building face colours by district palette.
 const PALETTES = {
   city: ['#7d9bb5', '#8fae8b', '#a08bb5', '#c9a86a', '#6a8a9b'],
   brick: ['#c97b4a', '#b56a6a', '#d99a5b', '#a86a4a'],
@@ -23,9 +29,9 @@ const PALETTES = {
 const CAR_COLORS = ['#d94f3d', '#3d7dd9', '#e8c33a', '#4ad97b', '#e8e6da', '#7a5fd9', '#e07b39'];
 const GRID_CELL = 256;
 
-// Blocks that become open plazas instead of building plots: [column, row]
-// in the road grid. Old Town square (ix 0, iy 1) and Downtown square
-// (ix 1, iy 1) each get a fountain at the block centre.
+// Blocks that become open plazas instead of building plots, as
+// [column, row] in the road grid. Old Town square (0, 1) and Downtown
+// square (1, 1) each get a fountain at the block centre.
 const PLAZAS = [
   { ix: 0, iy: 1 },
   { ix: 1, iy: 1 },
@@ -33,7 +39,8 @@ const PLAZAS = [
 
 export function districtAt(x, y) {
   for (const d of DISTRICTS) {
-    if (x >= d.x0 && x < d.x1 && y >= d.y0 && y < d.y1) return d;
+    const inside = x >= d.x0 && x < d.x1 && y >= d.y0 && y < d.y1;
+    if (inside) return d;
   }
   return DISTRICTS[DISTRICTS.length - 1];
 }
@@ -46,8 +53,8 @@ function isPlaza(ix, iy) {
   return PLAZAS.some((p) => p.ix === ix && p.iy === iy);
 }
 
-// Index buildings into coarse grid cells so collideBuildings only tests the
-// handful of buildings near a body instead of all of them.
+// Index buildings into coarse grid cells so collideBuildings only tests
+// the handful of buildings near a body instead of all of them.
 function indexBuildings(buildings) {
   const grid = new Map();
   buildings.forEach((b, i) => {
@@ -57,98 +64,102 @@ function indexBuildings(buildings) {
     const y1 = Math.floor((b.y + b.h) / GRID_CELL);
     for (let cx = x0; cx <= x1; cx += 1) {
       for (let cy = y0; cy <= y1; cy += 1) {
-        const k = gridKey(cx, cy);
-        if (!grid.has(k)) grid.set(k, []);
-        grid.get(k).push(i);
+        const key = gridKey(cx, cy);
+        if (!grid.has(key)) grid.set(key, []);
+        grid.get(key).push(i);
       }
     }
   });
   return grid;
 }
 
-export function buildWorld(seed) {
-  const rng = mulberry32(seed);
-  const buildings = [];
-  const trees = [];
-  const lamps = [];
-  const benches = [];
-  const fountains = [];
-  // One or two buildings per block, kept off the roads, the beach and the marina.
-  for (let ix = 0; ix < ROADS_X.length - 1; ix += 1) {
-    for (let iy = 0; iy < ROADS_Y.length - 1; iy += 1) {
-      const x0 = ROADS_X[ix] + ROAD_HALF + 14;
-      const x1 = ROADS_X[ix + 1] - ROAD_HALF - 14;
-      const y0 = ROADS_Y[iy] + ROAD_HALF + 14;
-      const y1 = ROADS_Y[iy + 1] - ROAD_HALF - 14;
-      if (x1 <= x0 + 60 || y1 <= y0 + 60) continue;
-      if (x0 > MARINA_LEFT - 100) continue;
-      if (y0 > BEACH_TOP - 100) continue;
-      // A plaza block gets a fountain and greenery, no buildings.
-      if (isPlaza(ix, iy)) {
-        const cx = Math.round((x0 + x1) / 2);
-        const cy = Math.round((y0 + y1) / 2);
-        fountains.push({ x: cx, y: cy, r: 42 });
-        for (let t = 0; t < 8; t += 1) {
-          const ang = (t / 8) * Math.PI * 2 + range(rng, -0.2, 0.2);
-          const dist = range(rng, 70, 120);
-          trees.push({
-            x: Math.round(cx + Math.cos(ang) * dist),
-            y: Math.round(cy + Math.sin(ang) * dist),
-            r: Math.round(range(rng, 10, 16)),
-          });
-        }
-        for (let b = 0; b < 3; b += 1) {
-          benches.push({
-            x: Math.round(cx + range(rng, -90, 90)),
-            y: Math.round(cy + range(rng, -90, 90)),
-            angle: rng() < 0.5 ? 0 : Math.PI / 2,
-          });
-        }
-        continue;
-      }
-      const district = districtAt((x0 + x1) / 2, (y0 + y1) / 2);
-      const palette = PALETTES[district.palette] || PALETTES.city;
-      const count = district.density >= 2 && rng() < 0.6 ? 2 : 1;
-      for (let n = 0; n < count; n += 1) {
-        const w = range(rng, 90, Math.min(220, (x1 - x0) / count - 20));
-        const h = range(rng, 80, Math.min(200, y1 - y0 - 20));
-        const bx = n === 0 ? x0 + range(rng, 0, 20) : x1 - w - range(rng, 0, 20);
-        const by = y0 + range(rng, 0, Math.max(1, y1 - y0 - h));
-        const stories = district.id === 'downtown' ? int(rng, 6, 18) : district.id === 'oldtown' ? int(rng, 2, 4) : int(rng, 1, 3);
-        // Tall downtown facades sometimes carry a neon sign after dark.
-        let neon = null;
-        if (district.id === 'downtown' && stories >= 6 && rng() < 0.45) {
-          neon = pick(rng, COLORS.neon);
-        }
-        buildings.push({
-          x: Math.round(bx),
-          y: Math.round(by),
-          w: Math.round(w),
-          h: Math.round(h),
-          color: pick(rng, palette),
-          roof: rng() < 0.18 ? 'pool' : rng() < 0.3 ? 'garden' : 'flat',
-          district: district.id,
-          stories,
-          neon,
-          landmark: false,
-        });
-      }
-      // Trees along the block edges, plus a bench or two where people linger.
-      const treeCount = 3 + Math.floor(rng() * 4);
-      for (let t = 0; t < treeCount; t += 1) {
-        trees.push({
-          x: Math.round(range(rng, x0, x1)),
-          y: Math.round(range(rng, y0, y1)),
-          r: Math.round(range(rng, 9, 16)),
-        });
-      }
-      if (rng() < 0.5) {
-        benches.push({ x: Math.round(range(rng, x0, x1)), y: Math.round(range(rng, y0, y1)), angle: rng() < 0.5 ? 0 : Math.PI / 2 });
-      }
-    }
+// A plaza block: one fountain at the centre, a ring of eight trees and
+// three benches around it, no buildings.
+function buildPlaza(rng, x0, x1, y0, y1, out) {
+  const cx = Math.round((x0 + x1) / 2);
+  const cy = Math.round((y0 + y1) / 2);
+  out.fountains.push({ x: cx, y: cy, r: 42 });
+  for (let t = 0; t < 8; t += 1) {
+    const ang = (t / 8) * Math.PI * 2 + range(rng, -0.2, 0.2);
+    const dist = range(rng, 70, 120);
+    out.trees.push({
+      x: Math.round(cx + Math.cos(ang) * dist),
+      y: Math.round(cy + Math.sin(ang) * dist),
+      r: Math.round(range(rng, 10, 16)),
+    });
   }
-  // The Solmar Tower: the tallest downtown building, raised to 24 storeys
-  // and flagged so the renderer gives it a beacon and a rooftop sign.
+  for (let b = 0; b < 3; b += 1) {
+    out.benches.push({
+      x: Math.round(cx + range(rng, -90, 90)),
+      y: Math.round(cy + range(rng, -90, 90)),
+      angle: rng() < 0.5 ? 0 : Math.PI / 2,
+    });
+  }
+}
+
+// One building on a block: size, position, storeys, a possible neon sign,
+// a face colour and a roof. Draws happen in a fixed order (width, height,
+// x, y, storeys, neon, colour, roof) so the city is reproducible.
+function buildOne(rng, x0, x1, y0, y1, slot, slots, district, palette) {
+  const w = range(rng, 90, Math.min(220, (x1 - x0) / slots - 20));
+  const h = range(rng, 80, Math.min(200, y1 - y0 - 20));
+  const x = slot === 0 ? x0 + range(rng, 0, 20) : x1 - w - range(rng, 0, 20);
+  const y = y0 + range(rng, 0, Math.max(1, y1 - y0 - h));
+  let stories;
+  if (district.id === 'downtown') stories = int(rng, 6, 18);
+  else if (district.id === 'oldtown') stories = int(rng, 2, 4);
+  else stories = int(rng, 1, 3);
+  // Tall downtown facades sometimes carry a neon sign after dark.
+  let neon = null;
+  if (district.id === 'downtown' && stories >= 6 && rng() < 0.45) {
+    neon = pick(rng, COLORS.neon);
+  }
+  const face = pick(rng, palette);
+  const roofRoll = rng();
+  const roof = roofRoll < 0.18 ? 'pool' : rng() < 0.3 ? 'garden' : 'flat';
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    w: Math.round(w),
+    h: Math.round(h),
+    color: face,
+    roof,
+    district: district.id,
+    stories,
+    neon,
+    landmark: false,
+  };
+}
+
+// A built-up block: one or two buildings, trees along the edges, and a
+// bench or two where people linger.
+function buildBlock(rng, x0, x1, y0, y1, out) {
+  const district = districtAt((x0 + x1) / 2, (y0 + y1) / 2);
+  const palette = PALETTES[district.palette] || PALETTES.city;
+  const slots = district.density >= 2 && rng() < 0.6 ? 2 : 1;
+  for (let n = 0; n < slots; n += 1) {
+    out.buildings.push(buildOne(rng, x0, x1, y0, y1, n, slots, district, palette));
+  }
+  const treeCount = 3 + Math.floor(rng() * 4);
+  for (let t = 0; t < treeCount; t += 1) {
+    out.trees.push({
+      x: Math.round(range(rng, x0, x1)),
+      y: Math.round(range(rng, y0, y1)),
+      r: Math.round(range(rng, 9, 16)),
+    });
+  }
+  if (rng() < 0.5) {
+    out.benches.push({
+      x: Math.round(range(rng, x0, x1)),
+      y: Math.round(range(rng, y0, y1)),
+      angle: rng() < 0.5 ? 0 : Math.PI / 2,
+    });
+  }
+}
+
+// The Solmar Tower: the tallest downtown building, raised to 24 storeys
+// and flagged so the renderer gives it a beacon and a rooftop sign.
+function raiseTower(buildings) {
   let tower = null;
   for (const b of buildings) {
     if (b.district !== 'downtown') continue;
@@ -159,19 +170,25 @@ export function buildWorld(seed) {
     tower.landmark = true;
     tower.neon = null;
   }
-  // Street lamps at every intersection, on alternating corners.
+}
+
+// Street lamps at every intersection, on alternating corners.
+function placeLamps(out) {
   for (const rx of ROADS_X) {
     for (const ry of ROADS_Y) {
-      lamps.push({
-        x: rx + (ROAD_HALF + 8) * (lamps.length % 2 === 0 ? 1 : -1),
-        y: ry + (ROAD_HALF + 8) * (lamps.length % 3 === 0 ? 1 : -1),
+      const n = out.lamps.length;
+      out.lamps.push({
+        x: rx + (ROAD_HALF + 8) * (n % 2 === 0 ? 1 : -1),
+        y: ry + (ROAD_HALF + 8) * (n % 3 === 0 ? 1 : -1),
       });
     }
   }
-  // Boats moored in slips in the marina, east of the last road.
-  const boats = [];
+}
+
+// Boats moored in slips in the marina, east of the last road.
+function placeBoats(rng, out) {
   for (let i = 0; i < 6; i += 1) {
-    boats.push({
+    out.boats.push({
       x: Math.round(range(rng, MARINA_LEFT + 60, WORLD.w - 80)),
       y: Math.round(range(rng, 200, BEACH_TOP - 200)),
       angle: (rng() - 0.5) * 0.4,
@@ -179,25 +196,71 @@ export function buildWorld(seed) {
       slip: i,
     });
   }
-  // Parked cars along the roads, waiting to be borrowed.
-  const parked = [];
+}
+
+// Parked cars along the roads, waiting to be borrowed.
+function placeParked(rng, out) {
   for (let i = 0; i < 10; i += 1) {
     const vertical = rng() < 0.5;
     const road = pick(rng, vertical ? ROADS_X : ROADS_Y);
     const along = range(rng, 200, vertical ? WORLD.h - 200 : WORLD.w - 200);
     const side = rng() < 0.5 ? -ROAD_HALF - 16 : ROAD_HALF + 16;
-    parked.push({
+    const angle = vertical
+      ? (rng() < 0.5 ? -Math.PI / 2 : Math.PI / 2)
+      : (rng() < 0.5 ? 0 : Math.PI);
+    out.parked.push({
       x: vertical ? Math.round(road + side) : Math.round(along),
       y: vertical ? Math.round(along) : Math.round(road + side),
-      angle: vertical ? (rng() < 0.5 ? -Math.PI / 2 : Math.PI / 2) : (rng() < 0.5 ? 0 : Math.PI),
+      angle,
       color: pick(rng, CAR_COLORS),
     });
   }
+}
+
+export function buildWorld(seed) {
+  const rng = mulberry32(seed);
+  const out = {
+    buildings: [],
+    trees: [],
+    lamps: [],
+    benches: [],
+    boats: [],
+    parked: [],
+    fountains: [],
+  };
+  // One or two buildings per block, kept off the roads, the beach and
+  // the marina.
+  for (let ix = 0; ix < ROADS_X.length - 1; ix += 1) {
+    for (let iy = 0; iy < ROADS_Y.length - 1; iy += 1) {
+      const x0 = ROADS_X[ix] + ROAD_HALF + 14;
+      const x1 = ROADS_X[ix + 1] - ROAD_HALF - 14;
+      const y0 = ROADS_Y[iy] + ROAD_HALF + 14;
+      const y1 = ROADS_Y[iy + 1] - ROAD_HALF - 14;
+      if (x1 <= x0 + 60 || y1 <= y0 + 60) continue;
+      if (x0 > MARINA_LEFT - 100) continue;
+      if (y0 > BEACH_TOP - 100) continue;
+      if (isPlaza(ix, iy)) {
+        buildPlaza(rng, x0, x1, y0, y1, out);
+        continue;
+      }
+      buildBlock(rng, x0, x1, y0, y1, out);
+    }
+  }
+  raiseTower(out.buildings);
+  placeLamps(out);
+  placeBoats(rng, out);
+  placeParked(rng, out);
   return {
-    buildings, trees, lamps, benches, boats, parked, fountains,
+    buildings: out.buildings,
+    trees: out.trees,
+    lamps: out.lamps,
+    benches: out.benches,
+    boats: out.boats,
+    parked: out.parked,
+    fountains: out.fountains,
     places: { ...PLACES },
     pier: { ...PIER },
-    grid: indexBuildings(buildings),
+    grid: indexBuildings(out.buildings),
   };
 }
 

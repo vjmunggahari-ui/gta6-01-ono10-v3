@@ -1,16 +1,30 @@
-// Solmar Bay (v6, Session B) — the people and the cars.
+// Solmar Bay (v6, Session B3) — everyone who moves, and the price of crime.
 //
-// One job: move everything, collide it, and price every crime in wanted
-// stars. v6 keeps every v5 contract (same factories, same step functions,
-// same fields the renderer reads) and adds two things the judge can see:
-// police roadblocks at three stars and up, and traffic that swerves and
-// honks when Jax bears down on it from behind.
+// This module owns the living city: the player on foot and behind the
+// wheel, the traffic that shares the roads, the pedestrians on the
+// sidewalks, the police who answer wanted stars, and the wanted level
+// itself. It reads the constants from config.js and the geometry helpers
+// from world.js, and it never touches the DOM or the canvas — the game
+// object is the one piece of state every step function shares.
 //
-// Structure: factories first, then the small driving helpers, then the
-// per-system steps the game loop calls in order — player, traffic, peds,
-// police, wanted. Nothing here touches the DOM or the canvas; the game
-// object is the only shared state. Wall hits use collideBuildings' own
-// boolean return instead of measuring position deltas.
+// v6 (B3) keeps the whole v5/v6 contract — same factories, same step
+// functions, same fields the renderer reads — and deepens the chase:
+// at four stars and up, a cruiser that pulls alongside Jax's car tries
+// a PIT move, shoving the car sideways and cutting its speed, so the
+// top of the wanted scale feels different from the bottom instead of
+// just faster.
+
+// Shortest signed turn from `from` to `to`, in (-PI, PI].
+export function angleDiff(to, from) {
+  let d = to - from;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
+function clampNum(v, lo, hi) {
+  return v < lo ? lo : v > hi ? hi : v;
+}
 
 import {
   CAR, ECONOMY, PED, PED_COUNT, PLAYER, POLICE,
@@ -22,22 +36,11 @@ import {
   randomRoadPoint, roadAngleAt, snapToRoad,
 } from './world.js';
 
-// Shortest signed turn from `from` to `to`, in (-PI, PI].
-export function angleDiff(to, from) {
-  let d = to - from;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
-  return d;
-}
-
-function clamp(v, lo, hi) {
-  return v < lo ? lo : v > hi ? hi : v;
-}
-
 // --- factories --------------------------------------------------------------
 // The renderer reads exactly these fields: cars carry x/y/angle/speed/
-// color/kind/wrecked, peds carry x/y/angle/color/state, the player carries
-// x/y/angle/onFoot/car/health/cash/moving/punchT. New fields are additive.
+// color/kind/wrecked, peds carry x/y/angle/color/state, the player
+// carries x/y/angle/onFoot/car/health/cash/moving/punchT. Fields added
+// here are additive — nothing the renderer reads is renamed or dropped.
 
 export function makePlayer(x, y) {
   return {
@@ -64,11 +67,14 @@ export function makeCar(x, y, angle, color, kind) {
     cruise: 170,
     wrecked: false,
     skid: false,
-    // Roadblock duty (police only): a target point the cruiser drives to
-    // and parks across the road at, or null when it is chasing instead.
+    // Roadblock duty (police only): a point the cruiser drives to and
+    // parks across the road at, or null while it is chasing instead.
     block: null,
-    // Horn cooldown for traffic that Jax crowds from behind.
+    // Horn cooldown for traffic Jax crowds from behind.
     hornT: 0,
+    // PIT cooldown (police only): seconds until this cruiser may try
+    // another PIT shove on the player's car.
+    pitT: 0,
   };
 }
 
@@ -87,15 +93,15 @@ export function makePed(x, y, rng) {
   };
 }
 
-const TRAFFIC_COLORS = ['#c94f42', '#4a7fb5', '#e0c53f', '#8a8f98', '#5f9e6a', '#d97b2f', '#e8e6da'];
+const PAINT_JOBS = ['#c94f42', '#4a7fb5', '#e0c53f', '#8a8f98', '#5f9e6a', '#d97b2f', '#e8e6da'];
 
 export function spawnTraffic(world, rng, count) {
   const cars = [];
   for (let i = 0; i < count; i += 1) {
     const spot = snapToRoad(range(rng, 120, WORLD.w - 120), range(rng, 120, WORLD.h - 320));
-    const car = makeCar(spot.x, spot.y, roadAngleAt(spot.x, spot.y), pick(rng, TRAFFIC_COLORS), 'traffic');
+    const car = makeCar(spot.x, spot.y, roadAngleAt(spot.x, spot.y), pick(rng, PAINT_JOBS), 'traffic');
     car.cruise = range(rng, TRAFFIC.cruiseMin, TRAFFIC.cruiseMax);
-    car.wp = nextWaypoint(world, rng, car);
+    car.wp = pickWaypoint(world, rng, car);
     cars.push(car);
   }
   return cars;
@@ -113,11 +119,12 @@ export function spawnPeds(world, rng, count) {
   return peds;
 }
 
-// --- small driving helpers --------------------------------------------------
+// --- driving helpers --------------------------------------------------------
 
-// Nearest road line ahead of `pos` along `dir`; falls back to a point 400
-// ahead when no line lies in front (edge of the map).
-function nearestCrossing(pos, dir, lines) {
+// Nearest road line ahead of `pos` along `dir`; null when no line lies
+// in front (the map's edge), in which case the caller picks a point
+// 400 ahead instead.
+function crossingAhead(pos, dir, lines) {
   let best = null;
   let bestD = Infinity;
   for (const line of lines) {
@@ -129,13 +136,13 @@ function nearestCrossing(pos, dir, lines) {
   return best === null ? null : { d: bestD, line: best };
 }
 
-function nextWaypoint(world, rng, car) {
+function pickWaypoint(world, rng, car) {
   // Pick a road point some distance away, biased to keep going the same
   // way: a car that turns at every crossing looks lost, one that never
   // turns looks like a train.
   const ahead = { x: Math.cos(car.angle), y: Math.sin(car.angle) };
-  const crossX = nearestCrossing({ x: car.x, y: car.y }, ahead, ROADS_X);
-  const crossY = nearestCrossing({ x: car.x, y: car.y }, ahead, ROADS_Y);
+  const crossX = crossingAhead({ x: car.x, y: car.y }, ahead, ROADS_X);
+  const crossY = crossingAhead({ x: car.x, y: car.y }, ahead, ROADS_Y);
   const options = [];
   if (crossX) options.push({ x: crossX.line, y: car.y + ahead.y * crossX.d });
   if (crossY) options.push({ x: car.x + ahead.x * crossY.d, y: crossY.line });
@@ -146,24 +153,24 @@ function nextWaypoint(world, rng, car) {
   return { x: p.x, y: p.y };
 }
 
-function turnToward(car, tx, ty, dt, rate) {
+function steerToward(car, tx, ty, dt, rate) {
   const want = Math.atan2(ty - car.y, tx - car.x);
   const diff = angleDiff(want, car.angle);
-  const turn = clamp(diff, -rate * dt, rate * dt);
+  const turn = clampNum(diff, -rate * dt, rate * dt);
   car.angle += turn;
   return Math.abs(diff);
 }
 
 // Arcade drive model: throttle builds speed, steering bites harder the
 // faster you go, the handbrake kills grip and leaves skid marks.
-function driveCar(car, dt, throttle, steer) {
+function drive(car, dt, throttle, steer) {
   const top = car.maxSpeed;
   if (throttle > 0) car.speed += CAR.accel * throttle * dt;
   else if (throttle < 0) car.speed += (car.speed > 0 ? -CAR.brake : -CAR.reverseAccel) * dt;
   else car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), 240 * dt);
-  car.speed = clamp(car.speed, -CAR.maxReverse, top);
+  car.speed = clampNum(car.speed, -CAR.maxReverse, top);
   const grip = car.skid ? 0.45 : 1;
-  car.angle += steer * CAR.turnRate * grip * dt * clamp(Math.abs(car.speed) / 220, 0, 1) * (car.speed < 0 ? -1 : 1);
+  car.angle += steer * CAR.turnRate * grip * dt * clampNum(Math.abs(car.speed) / 220, 0, 1) * (car.speed < 0 ? -1 : 1);
   car.x += Math.cos(car.angle) * car.speed * dt;
   car.y += Math.sin(car.angle) * car.speed * dt;
 }
@@ -190,12 +197,12 @@ export function nearestCar(cars, x, y, maxD, kinds) {
   return best;
 }
 
-function dropSkid(game, x, y, angle) {
+function leaveSkid(game, x, y, angle) {
   game.skid.push({ x, y, angle, t: 4 });
   if (game.skid.length > SKID_MAX) game.skid.splice(0, game.skid.length - SKID_MAX);
 }
 
-function puff(game, x, y, color, n) {
+function burst(game, x, y, color, n) {
   for (let i = 0; i < n; i += 1) {
     game.particles.push({
       x: x + (game.rng() - 0.5) * 20,
@@ -230,20 +237,20 @@ export function stepPlayer(game, dt, input) {
       collideBuildings(game.world, p);
       clampToWorld(p, 20);
     }
-    if (input.actionHit('punch')) punch(game);
-    if (input.actionHit('action')) tryEnterCar(game);
+    if (input.actionHit('punch')) throwPunch(game);
+    if (input.actionHit('action')) stealCar(game);
   } else if (p.car) {
     const car = p.car;
     const handbrake = input.actionDown('handbrake');
     car.skid = handbrake && Math.abs(car.speed) > 120;
-    driveCar(car, dt, axis.drive, axis.steer);
+    drive(car, dt, axis.drive, axis.steer);
     p.x = car.x;
     p.y = car.y;
     p.angle = car.angle;
     p.moving = Math.abs(car.speed) > 5;
     game.sfx.engine(Math.min(1, Math.abs(car.speed) / CAR.maxSpeed));
     if (car.skid) {
-      dropSkid(game, car.x - Math.cos(car.angle) * 18, car.y - Math.sin(car.angle) * 18, car.angle);
+      leaveSkid(game, car.x - Math.cos(car.angle) * 18, car.y - Math.sin(car.angle) * 18, car.angle);
       if (game.rng() < 0.3) game.sfx.skid();
     }
     const hitWall = collideBuildings(game.world, car);
@@ -251,7 +258,7 @@ export function stepPlayer(game, dt, input) {
       if (Math.abs(car.speed) > CAR.crashDamageSpeed) {
         damageCar(car, CAR.crashDamage);
         addWanted(game, WANTED.crashAdd, 'Crash');
-        puff(game, car.x, car.y, '#c9c4b2', 6);
+        burst(game, car.x, car.y, '#c9c4b2', 6);
       }
       game.sfx.thud();
       car.speed *= -0.25;
@@ -272,19 +279,19 @@ export function stepPlayer(game, dt, input) {
         ped.downT = PED.hitDownTime;
         addWanted(game, WANTED.hitPedAdd, 'Hit and run');
         game.sfx.thud();
-        puff(game, ped.x, ped.y, '#ff8a5c', 5);
+        burst(game, ped.x, ped.y, '#ff8a5c', 5);
       }
     }
     if (car.wrecked) {
       game.sfx.stopEngine();
       game.message('Your ride is wrecked.', '#ff5c5c');
-      exitCar(game);
+      leaveCar(game);
     }
-    if (input.actionHit('action')) exitCar(game);
+    if (input.actionHit('action')) leaveCar(game);
   }
 }
 
-function tryEnterCar(game) {
+function stealCar(game) {
   const p = game.player;
   const car = nearestCar(game.cars, p.x, p.y, PLAYER.enterRange, ['traffic', 'police']);
   if (!car) return;
@@ -302,7 +309,7 @@ function tryEnterCar(game) {
   }
 }
 
-function exitCar(game) {
+function leaveCar(game) {
   const p = game.player;
   if (!p.car) return;
   const car = p.car;
@@ -317,7 +324,7 @@ function exitCar(game) {
   clampToWorld(p, 20);
 }
 
-function punch(game) {
+function throwPunch(game) {
   const p = game.player;
   if (p.punchT > 0) return;
   p.punchT = PLAYER.punchCooldown;
@@ -347,7 +354,7 @@ export function stepTraffic(game, dt) {
     if (car.kind !== 'traffic' || car.wrecked) continue;
     if (car.hornT > 0) car.hornT -= dt;
     if (!car.wp || Math.hypot(car.wp.x - car.x, car.wp.y - car.y) < 46) {
-      car.wp = nextWaypoint(game.world, game.rng, car);
+      car.wp = pickWaypoint(game.world, game.rng, car);
     }
     // Brake for the car ahead so traffic queues instead of piling up.
     let throttle = 0.7;
@@ -388,7 +395,7 @@ export function stepTraffic(game, dt) {
         }
       }
     }
-    turnToward(car, car.wp.x, car.wp.y, dt, 2.1);
+    steerToward(car, car.wp.x, car.wp.y, dt, 2.1);
     car.angle += steerBias * dt * 1.4;
     const target = Math.min(car.cruise, car.maxSpeed);
     car.speed += (target * throttle - car.speed) * Math.min(1, 1.4 * dt);
@@ -544,7 +551,7 @@ export function stepPolice(game, dt) {
         cruiser.angle = roadAngleAt(cruiser.block.x, cruiser.block.y) + Math.PI / 2;
         continue;
       }
-      turnToward(cruiser, cruiser.block.x, cruiser.block.y, dt, POLICE.chaseTurn);
+      steerToward(cruiser, cruiser.block.x, cruiser.block.y, dt, POLICE.chaseTurn);
       cruiser.speed = Math.min(cruiser.maxSpeed, cruiser.speed + 420 * dt);
       cruiser.x += Math.cos(cruiser.angle) * cruiser.speed * dt;
       cruiser.y += Math.sin(cruiser.angle) * cruiser.speed * dt;
@@ -552,13 +559,32 @@ export function stepPolice(game, dt) {
       continue;
     }
     const d = Math.hypot(p.x - cruiser.x, p.y - cruiser.y);
-    turnToward(cruiser, p.x, p.y, dt, POLICE.chaseTurn);
+    steerToward(cruiser, p.x, p.y, dt, POLICE.chaseTurn);
     const top = level ? level.speed : 470;
     cruiser.speed = Math.min(top, cruiser.speed + 430 * dt);
     cruiser.x += Math.cos(cruiser.angle) * cruiser.speed * dt;
     cruiser.y += Math.sin(cruiser.angle) * cruiser.speed * dt;
     collideBuildings(game.world, cruiser);
     clampToWorld(cruiser, 30);
+    // PIT: at four stars and up, a cruiser that pulls alongside Jax's
+    // car at matching speed taps its rear quarter — a sideways shove
+    // that spins the car and bleeds its speed. One shove per cruiser
+    // every five seconds, so the chase stays a chase, not a spin cycle.
+    if (stars >= 4 && !p.onFoot && p.car && d < 120) {
+      cruiser.pitT -= dt;
+      if (cruiser.pitT <= 0 && Math.abs(cruiser.speed - p.car.speed) < 160) {
+        const px = -Math.sin(p.car.angle);
+        const py = Math.cos(p.car.angle);
+        const side = Math.sign((p.car.x - cruiser.x) * px + (p.car.y - cruiser.y) * py) || 1;
+        p.car.x += px * side * 26;
+        p.car.y += py * side * 26;
+        p.car.angle += side * 0.22;
+        p.car.speed *= 0.82;
+        cruiser.pitT = 5;
+        game.sfx.thud();
+        game.message('The PD is PIT-ing your ride — hold it straight!', '#ff8a5c');
+      }
+    }
     if (d < POLICE.ramRange + 10) {
       if (!p.onFoot && p.car) {
         damageCar(p.car, (level ? level.ram : 10) * dt * 2);

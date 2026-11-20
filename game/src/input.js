@@ -1,9 +1,10 @@
-// Solmar Bay (v6, Session B) — keyboard, mouse and gamepad, as one small object.
+// Solmar Bay (v6, Session B3) — keyboard, mouse and gamepad, in one place.
 //
-// One job: remember what is held down, and report each fresh press once.
-// v6 reorganizes v5 into a binding table (one place lists every action and
-// its keys, pad button and stick role) and adds a click accessor the game
-// uses to start from the title screen with the mouse. Same edge semantics:
+// This module remembers what is held down and reports each fresh press
+// exactly once. v6 (B3) keeps the v5/v6 shape — a binding table that
+// lists every action with its keys, pad button and stick role, plus a
+// click accessor the game uses to start from the title screen with the
+// mouse — and reorganizes the internals around it. Same edge semantics:
 // a held key never re-fires, blur clears everything, the pad polls once
 // per frame with a deadzone, and the first gesture wakes the audio.
 
@@ -22,10 +23,10 @@ export const ACTIONS = {
 };
 
 // Gamepad buttons, standard mapping: 0 A, 1 B, 2 X, 3 Y, 9 Start.
-const PAD_BUTTONS = { action: 0, handbrake: 1, punch: 2, mission: 3, pause: 9 };
-const STICK_DEADZONE = 0.22;
+const PAD_BINDINGS = { action: 0, handbrake: 1, punch: 2, mission: 3, pause: 9 };
+const STICK_DEAD = 0.22;
 // Keys whose default browser behavior would scroll the page or worse.
-const PREVENT_DEFAULT = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '];
+const NO_DEFAULT_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '];
 
 export class Input {
   constructor() {
@@ -41,7 +42,7 @@ export class Input {
 
   attach(target) {
     target.addEventListener('keydown', (e) => {
-      if (PREVENT_DEFAULT.includes(e.key)) e.preventDefault();
+      if (NO_DEFAULT_KEYS.includes(e.key)) e.preventDefault();
       if (e.repeat) return; // held keys must not re-fire edge presses
       if (!this.keys.has(e.key)) this.pressed.add(e.key);
       this.keys.add(e.key);
@@ -99,7 +100,7 @@ export class Input {
     } catch { fresh = this.pad; }
     this.pad = fresh;
     if (!this.pad || !this.pad.buttons) return;
-    for (const [name, idx] of Object.entries(PAD_BUTTONS)) {
+    for (const [name, idx] of Object.entries(PAD_BINDINGS)) {
       const b = this.pad.buttons[idx];
       const isDown = !!(b && (b.pressed || b.value > 0.5));
       if (isDown && !this.padButtons.has(name)) this.padPressed.add(name);
@@ -157,8 +158,8 @@ export class Input {
     if (steer === 0 && drive === 0 && this.pad && this.pad.axes) {
       const ax = this.pad.axes[0] || 0;
       const ay = this.pad.axes[1] || 0;
-      if (Math.abs(ax) > STICK_DEADZONE) steer = ax;
-      if (Math.abs(ay) > STICK_DEADZONE) drive = -ay;
+      if (Math.abs(ax) > STICK_DEAD) steer = ax;
+      if (Math.abs(ay) > STICK_DEAD) drive = -ay;
     }
     return { steer, drive };
   }

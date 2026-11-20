@@ -1,14 +1,14 @@
-// Solmar Bay (v6, Session B) — the game itself: state, the fixed-step
+// Solmar Bay (v6, Session B3) — the game itself: state, the fixed-step
 // loop, save, screens.
 //
 // One job: own the game object and run it, in play and in screenshot
-// poses. v6 reorganizes v5 so the frame loop is a small dispatcher over
-// named screen handlers (title / play / pause / busted) instead of one
-// long if-chain, polls the gamepad every frame (v5 wired the pad but
-// never called update(), so pad buttons were dead), and lets a mouse
-// click start the game or walk out of the hospital. The save format,
-// the screens, the ?shot= staging contract and window.__solmarGame /
-// window.__solmarReady are unchanged.
+// poses. v6 (B3) reorganizes v5/v6 so the frame loop is a small
+// dispatcher over named screen handlers (title / play / pause / busted)
+// instead of one long if-chain, polls the gamepad every frame (v5 wired
+// the pad but never called update(), so pad buttons were dead), and lets
+// a mouse click start the game or walk out of the hospital. The save
+// format, the screens, the ?shot= staging contract and
+// window.__solmarGame / window.__solmarReady are unchanged.
 
 import { CAMERA, DAY, ECONOMY, PED_COUNT, PLAYER, SAVE_KEY, SEEDS, STEP, TRAFFIC_COUNT, VIEW } from './config.js';
 import { mulberry32 } from './random.js';
@@ -150,17 +150,22 @@ export class Game {
     stepPeds(this, dt);
     stepPolice(this, dt);
     if (this.missions.current) this.missions.update(dt);
-    for (const pt of this.particles) pt.t -= dt;
-    this.particles = this.particles.filter((pt) => pt.t > 0);
-    for (const s of this.skid) s.t -= dt;
-    this.skid = this.skid.filter((s) => s.t > 0);
-    this.messages = this.messages.filter((m) => this.time - m.t < 4.5);
+    this.pruneFx(dt);
     this.updateCamera(dt);
     // Traffic that drove off the map's edge quietly respawns up the road.
     if (this.cars.length < TRAFFIC_COUNT + 1) {
       const fresh = spawnTraffic(this.world, this.rng, 1);
       this.cars.push(fresh[0]);
     }
+  }
+
+  // Drop expired particles, skid marks and messages from the last step.
+  pruneFx(dt) {
+    for (const pt of this.particles) pt.t -= dt;
+    this.particles = this.particles.filter((pt) => pt.t > 0);
+    for (const s of this.skid) s.t -= dt;
+    this.skid = this.skid.filter((s) => s.t > 0);
+    this.messages = this.messages.filter((m) => this.time - m.t < 4.5);
   }
 
   render() {
@@ -172,7 +177,7 @@ export class Game {
 // Each screen owns its own input. The loop only dispatches; nothing here
 // steps the world except the play handler's fixed-step accumulator.
 
-function onTitle(game, frameDt) {
+function titleTick(game, frameDt) {
   game.time += frameDt;
   if (game.input.actionHit('pause') || game.input.hit('Enter') || game.input.clicked()) {
     game.screen = 'play';
@@ -180,7 +185,7 @@ function onTitle(game, frameDt) {
   }
 }
 
-function onPlay(game, frameDt, acc) {
+function playTick(game, frameDt, acc) {
   if (game.input.actionHit('pause')) {
     game.screen = 'pause';
     game.sfx.stopEngine();
@@ -205,11 +210,11 @@ function onPlay(game, frameDt, acc) {
   return next;
 }
 
-function onPause(game) {
+function pauseTick(game) {
   if (game.input.actionHit('pause')) game.screen = 'play';
 }
 
-function onBusted(game, frameDt) {
+function bustedTick(game, frameDt) {
   game.time += frameDt;
   if (game.input.hit('Enter') || game.input.clicked()) game.respawn();
 }
@@ -259,10 +264,10 @@ function frame(now) {
   // so the captured frame is exactly the pose, at full speed, every time.
   if (!game.shot) {
     game.input.update();
-    if (game.screen === 'title') onTitle(game, frameDt);
-    else if (game.screen === 'pause') onPause(game);
-    else if (game.screen === 'busted') onBusted(game, frameDt);
-    else if (game.screen === 'play') acc = onPlay(game, frameDt, acc);
+    if (game.screen === 'title') titleTick(game, frameDt);
+    else if (game.screen === 'pause') pauseTick(game);
+    else if (game.screen === 'busted') bustedTick(game, frameDt);
+    else if (game.screen === 'play') acc = playTick(game, frameDt, acc);
   }
   game.render();
   game.input.endFrame();

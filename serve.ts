@@ -1,4 +1,4 @@
-// Solmar Bay — a tiny static server for local play (v6, Session B rewrite).
+// Solmar Bay — a tiny static server for local play (v6, Session B3 rewrite).
 //
 //   node serve.ts [--port 8080] [--host 127.0.0.1]
 //
@@ -6,19 +6,19 @@
 // the playable game as static files, nothing else leaves the machine, and
 // nothing is fetched from the network while you play.
 //
-// v6 reorganizes v5 into one send helper with an extra-headers slot: HEAD
-// answers like GET without a body (so screenshot and link-check tools work
-// against it); paths are resolved and then checked against the root with a
-// separator-aware test, so `..` can never escape game/; unknown extensions
-// get a safe binary type instead of a guess; and every response carries
-// no-store, so a stale game is never served twice.
+// v6 reorganizes v5 into one respond helper with an extra-headers slot:
+// HEAD answers like GET without a body (so screenshot and link-check tools
+// work against it); paths are resolved and then checked against the root
+// with a separator-aware test, so `..` can never escape game/; unknown
+// extensions get a safe binary type instead of a guess; and every response
+// carries no-store, so a stale game is never served twice.
 
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
 
-const MIME: Record<string, string> = {
+const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
@@ -39,7 +39,7 @@ const MIME: Record<string, string> = {
 };
 
 // --port 8080, --port=8080, --host 127.0.0.1, or PORT / HOST env vars.
-function parseArgs(argv: string[]): { port: number; host: string } {
+function readArgs(argv: string[]): { port: number; host: string } {
   let port = Number(process.env.PORT ?? 8080);
   let host = process.env.HOST ?? '127.0.0.1';
   for (let i = 0; i < argv.length; i += 1) {
@@ -56,14 +56,14 @@ function parseArgs(argv: string[]): { port: number; host: string } {
   return { port, host };
 }
 
-const { port, host } = parseArgs(process.argv.slice(2));
+const { port, host } = readArgs(process.argv.slice(2));
 const root = resolve(process.cwd(), 'game');
 
-function insideRoot(file: string): boolean {
+function isInside(file: string): boolean {
   return file === root || file.startsWith(root + sep);
 }
 
-function send(
+function respond(
   res: import('node:http').ServerResponse,
   status: number,
   type: string,
@@ -80,9 +80,9 @@ function send(
   res.end(data);
 }
 
-function sendFile(res: import('node:http').ServerResponse, file: string, headOnly: boolean, data: Buffer): void {
+function respondFile(res: import('node:http').ServerResponse, file: string, headOnly: boolean, data: Buffer): void {
   res.writeHead(200, {
-    'content-type': MIME[extname(file).toLowerCase()] || 'application/octet-stream',
+    'content-type': TYPES[extname(file).toLowerCase()] || 'application/octet-stream',
     'content-length': data.length,
     'cache-control': 'no-store',
   });
@@ -93,24 +93,24 @@ const server = createServer(async (req, res) => {
   const stamp = new Date().toISOString();
   try {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
-      send(res, 405, 'text/plain; charset=utf-8', 'method not allowed\n', { allow: 'GET, HEAD' });
+      respond(res, 405, 'text/plain; charset=utf-8', 'method not allowed\n', { allow: 'GET, HEAD' });
       return;
     }
     const url = new URL(req.url || '/', 'http://localhost');
     let path = decodeURIComponent(url.pathname);
     if (path === '/') path = '/index.html';
     const file = resolve(root, `.${path}`);
-    if (!insideRoot(file) || !existsSync(file) || !statSync(file).isFile()) {
+    if (!isInside(file) || !existsSync(file) || !statSync(file).isFile()) {
       console.log(`${stamp} ${req.method} ${url.pathname} -> 404`);
-      send(res, 404, 'text/plain; charset=utf-8', 'not found\n');
+      respond(res, 404, 'text/plain; charset=utf-8', 'not found\n');
       return;
     }
     const data = await readFile(file);
-    sendFile(res, file, req.method === 'HEAD', data);
+    respondFile(res, file, req.method === 'HEAD', data);
     console.log(`${stamp} ${req.method} ${url.pathname} -> 200 (${data.length} bytes)`);
   } catch (err) {
     console.error(`${stamp} ${req.method} ${req.url} -> 500`, err);
-    if (!res.headersSent) send(res, 500, 'text/plain; charset=utf-8', 'server error\n');
+    if (!res.headersSent) respond(res, 500, 'text/plain; charset=utf-8', 'server error\n');
   }
 });
 

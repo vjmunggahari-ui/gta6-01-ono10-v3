@@ -1,15 +1,16 @@
-// Solmar Bay (v6, Session B) — sound, synthesized, nothing fetched.
+// Solmar Bay (v6, Session B3) — sound, synthesized, nothing fetched.
 //
-// One job: make the city hum, wail and thud without any audio files. v6
-// rebuilds the synth kit around two primitives (blip + noise) and a small
-// step sequencer: a low A-minor bassline with a hat tick for the music, a
-// two-oscillator engine that follows speed, and a two-tone siren that
-// wails while the PD is on you. Same public API as v5 — every method the
-// game and the entities call still exists with the same name. Music
-// requested before the context exists starts once init() runs, instead
-// of being silently lost.
+// This module makes the city hum, wail and thud without any audio
+// files. v6 (B3) rebuilds the synth kit around two primitives (blip +
+// noise) and a step sequencer: a low A-minor bassline walks the root
+// notes while a hat ticks the offbeats and a sparse lead answers every
+// few bars, a two-oscillator engine follows the car's speed, and a
+// two-tone siren wails while the PD is on you. Same public API as
+// v5/v6 — every method the game and the entities call still exists
+// with the same name. Music requested before the context exists starts
+// once init() runs, instead of being silently lost.
 
-const MUTE_KEY = 'solmarbay-muted';
+const MUTE_STORE_KEY = 'solmarbay-muted';
 
 export class SoundFX {
   constructor() {
@@ -27,7 +28,7 @@ export class SoundFX {
     this._musicStep = 0;
     try {
       this.muted = typeof window !== 'undefined' && !!window.localStorage
-        ? window.localStorage.getItem(MUTE_KEY) === '1'
+        ? window.localStorage.getItem(MUTE_STORE_KEY) === '1'
         : false;
     } catch { this.muted = false; }
   }
@@ -57,7 +58,7 @@ export class SoundFX {
     this.muted = !!m;
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(MUTE_KEY, this.muted ? '1' : '0');
+        window.localStorage.setItem(MUTE_STORE_KEY, this.muted ? '1' : '0');
       }
     } catch { /* a mute that cannot be stored still mutes */ }
     if (this.master) this.master.gain.value = this.muted ? 0 : 0.5;
@@ -206,8 +207,9 @@ export class SoundFX {
   }
 
   // --- music ----------------------------------------------------------------
-  // An 8-step loop at ~136 BPM: a low A-minor bassline walks the root
-  // notes while a hat ticks the offbeats. A step timer keeps it going;
+  // A 16-step loop at ~150 BPM: a low A-minor bassline walks the root
+  // notes, a hat ticks the offbeats, and a soft lead answers on steps
+  // 0, 6 and 11 of every second bar. A step timer keeps it going;
   // turning music off stops the timer, never the context.
   setMusicEnabled(on) {
     this.musicOn = !!on;
@@ -217,14 +219,18 @@ export class SoundFX {
       return;
     }
     if (this._musicTimer) return;
-    const bass = [55, 55, 65.41, 55, 82.41, 55, 73.42, 65.41];
+    const bass = [55, 55, 65.41, 55, 82.41, 55, 73.42, 65.41, 55, 55, 65.41, 49, 82.41, 73.42, 65.41, 49];
+    const lead = { 0: 440, 6: 523.25, 11: 659.25 };
     this._musicStep = 0;
     this._musicTimer = setInterval(() => {
       if (this.muted || !this.musicOn || !this.ctx) return;
-      const step = this._musicStep % 8;
+      const step = this._musicStep % 16;
       this._musicStep += 1;
       this.blip(bass[step], 0.2, 'triangle', 0.09, bass[step] * 0.995);
       if (step % 2 === 1) this.noise(0.03, 0.025, 6000);
-    }, 220);
+      if (lead[step] && Math.floor(this._musicStep / 16) % 2 === 1) {
+        this.blip(lead[step], 0.3, 'sine', 0.045);
+      }
+    }, 200);
   }
 }

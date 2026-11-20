@@ -1,112 +1,111 @@
-// Solmar Bay — music sequencer.
-// A 16-step loop: kick on the beat, a walking bass line, hats off the beat,
-// and a sparse lead. Headless-safe: where there is no WebAudio, tick() still
-// advances the step counter so the loop stays testable.
+// Solmar Bay — music sequencer. A 16-step loop at 112 BPM.
+// The pattern logic is pure (works headless); sound only plays when a
+// WebAudio context exists, so the game never crashes without audio.
 
 export const STEP_COUNT = 16;
-export const STEP_SECONDS = 0.14;
+export const BPM = 112;
 
-// Bass line: one note per step, 0 = rest. Frequencies in Hz.
-const BASS_LINE = [
-  55, 0, 55, 65.41, 0, 55, 0, 49,
-  55, 0, 55, 65.41, 73.42, 0, 49, 58.27,
-];
+// 16-step patterns. Bass/lead hold scale degrees (minor) or null = rest.
+// Kick on the four beats, hats on the off-beats.
+export const KICK_PATTERN = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];
+export const HAT_PATTERN = [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1];
+export const BASS_PATTERN = [0, null, 0, null, 3, null, 0, null, 5, null, 3, null, 7, null, 5, 3];
+export const LEAD_PATTERN = [null, null, 12, null, null, 10, null, null, 12, null, null, 14, null, 12, 10, null];
 
-// Lead: sparse plucks on a few steps.
-const LEAD_LINE = [
-  0, 0, 440, 0, 0, 523.25, 0, 0,
-  0, 0, 392, 0, 0, 440, 0, 0,
-];
+// Minor scale, A2 root (110 Hz). Degree -> frequency.
+const SCALE = [110, 130.81, 146.83, 164.81, 196, 220, 246.94, 261.63, 293.66, 329.63, 349.23, 392, 440, 493.88, 523.25, 587.33];
+
+export function stepFreq(degree) {
+  if (degree === null || degree === undefined) return null;
+  return SCALE[degree % SCALE.length] ?? null;
+}
+
+// What plays on step i: { kick, hat, bass, lead } (frequencies or null).
+export function stepAt(i) {
+  const s = ((i % STEP_COUNT) + STEP_COUNT) % STEP_COUNT;
+  return {
+    kick: KICK_PATTERN[s] ? 1 : 0,
+    hat: HAT_PATTERN[s] ? 1 : 0,
+    bass: stepFreq(BASS_PATTERN[s]),
+    lead: stepFreq(LEAD_PATTERN[s]),
+  };
+}
 
 export function makeMusic() {
-  const music = {
-    step: 0,
-    stepTime: 0,
-    playing: false,
-    ctx: null,
-    master: null,
-    muted: false,
+  let audio = null;
+  try {
+    const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
+    if (AC) audio = new AC();
+  } catch {
+    audio = null;
+  }
+  const master = audio ? audio.createGain() : null;
+  if (master) {
+    master.gain.value = 0.16;
+    master.connect(audio.destination);
+  }
 
-    start() {
-      if (music.playing) return;
-      music.playing = true;
-      try {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (AC && !music.ctx) {
-          music.ctx = new AC();
-          music.master = music.ctx.createGain();
-          music.master.gain.value = 0.12;
-          music.master.connect(music.ctx.destination);
-        }
-        if (music.ctx && music.ctx.state === 'suspended') music.ctx.resume();
-      } catch (e) {
-        // No audio device (headless): keep counting steps silently.
-        music.ctx = null;
-      }
+  let step = 0;
+  let muted = false;
+  let timer = null;
+
+  function blip(freq, dur, type, vol) {
+    if (!audio || muted || freq === null) return;
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, audio.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + dur);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start();
+    osc.stop(audio.currentTime + dur);
+  }
+
+  function playStep(notes) {
+    if (notes.kick) blip(55, 0.14, 'sine', 0.9);
+    if (notes.hat) blip(5200, 0.03, 'square', 0.08);
+    if (notes.bass !== null) blip(notes.bass, 0.22, 'triangle', 0.5);
+    if (notes.lead !== null) blip(notes.lead, 0.18, 'sawtooth', 0.12);
+  }
+
+  // Advance one step and return its notes. Pure: safe to call headless.
+  function tick() {
+    const notes = stepAt(step);
+    step = (step + 1) % STEP_COUNT;
+    playStep(notes);
+    return notes;
+  }
+
+  function start() {
+    if (timer !== null || !audio) return;
+    const ms = (60 / BPM / 4) * 1000;
+    timer = setInterval(tick, ms);
+  }
+
+  function stop() {
+    if (timer !== null) {
+      clearInterval(timer);
+      timer = null;
+    }
+  }
+
+  return {
+    STEP_COUNT,
+    BPM,
+    get step() {
+      return step;
     },
-
-    stop() {
-      music.playing = false;
-      if (music.ctx) music.ctx.suspend().catch(() => {});
+    get muted() {
+      return muted;
     },
-
-    toggle() {
-      if (music.playing) music.stop();
-      else music.start();
-      return music.playing;
-    },
-
-    // Advance the sequencer by dt seconds. Integer-counted: the step only
-    // moves when a full step duration has elapsed, so the loop is exact.
-    tick(dt) {
-      if (!music.playing) return;
-      music.stepTime += dt;
-      while (music.stepTime >= STEP_SECONDS) {
-        music.stepTime -= STEP_SECONDS;
-        music.step = (music.step + 1) % STEP_COUNT;
-        music.playStep(music.step);
-      }
-    },
-
-    playStep(step) {
-      if (!music.ctx || music.muted) return;
-      const t0 = music.ctx.currentTime;
-      // Kick on steps 0, 4, 8, 12.
-      if (step % 4 === 0) music.tone(120, 0.09, 'sine', 0.9, t0);
-      // Hats on odd steps.
-      if (step % 2 === 1) music.noise(0.03, 0.25, t0);
-      const bass = BASS_LINE[step];
-      if (bass) music.tone(bass, STEP_SECONDS * 0.9, 'triangle', 0.7, t0);
-      const lead = LEAD_LINE[step];
-      if (lead) music.tone(lead, STEP_SECONDS * 0.8, 'square', 0.25, t0);
-    },
-
-    tone(freq, dur, type, vol, when) {
-      const osc = music.ctx.createOscillator();
-      const gain = music.ctx.createGain();
-      osc.type = type;
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(vol, when);
-      gain.gain.exponentialRampToValueAtTime(0.001, when + dur);
-      osc.connect(gain);
-      gain.connect(music.master);
-      osc.start(when);
-      osc.stop(when + dur + 0.02);
-    },
-
-    noise(dur, vol, when) {
-      const len = Math.max(1, Math.floor(music.ctx.sampleRate * dur));
-      const buf = music.ctx.createBuffer(1, len, music.ctx.sampleRate);
-      const data = buf.getChannelData(0);
-      for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
-      const src = music.ctx.createBufferSource();
-      src.buffer = buf;
-      const gain = music.ctx.createGain();
-      gain.gain.value = vol;
-      src.connect(gain);
-      gain.connect(music.master);
-      src.start(when);
+    tick,
+    stepAt,
+    start,
+    stop,
+    setMuted(m) {
+      muted = !!m;
     },
   };
-  return music;
 }

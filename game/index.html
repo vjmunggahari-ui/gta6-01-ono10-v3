@@ -2,18 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Solmar Bay — GTA 6</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solmar Bay — open-world crime game</title>
 <style>
-  html, body { margin: 0; padding: 0; background: #101418; height: 100%; }
-  body { display: flex; align-items: center; justify-content: center; }
-  #game { display: block; width: 1280px; height: 720px; background: #101418; }
+  html, body { margin: 0; padding: 0; background: #101018; height: 100%; overflow: hidden; }
+  #game { display: block; width: 100vw; height: 100vh; }
 </style>
 </head>
 <body>
 <canvas id="game" width="1280" height="720"></canvas>
 <script type="module">
   import { createGame } from './src/main.js';
-  createGame(document.getElementById('game'));
+  const canvas = document.getElementById('game');
+  const game = createGame(canvas);
+  game.start();
 </script>
 </body>
 </html>

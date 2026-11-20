@@ -1,103 +1,173 @@
-// Solmar Bay — input: keyboard + mouse + gamepad.
-// The gamepad is polled every frame inside poll(); keyboard state is kept
-// in a Set of codes. All browser globals are guarded so the module imports
-// cleanly in Node for tests.
+// Solmar Bay — keyboard, mouse and gamepad input.
+// Gamepad is polled every frame through update(); keyboard edges are
+// tracked so a single key press fires one action. Safe headless: every
+// browser global is guarded, so Node tests can drive input by hand.
 
-export function makeInput() {
-  const input = {
-    keys: new Set(),
-    mouse: { x: 0, y: 0, down: false, clicked: false },
-    pad: { connected: false, steer: 0, throttle: 0, brake: false, action: false },
-    attached: false,
+const MOVE_KEYS = {
+  KeyW: [0, -1],
+  ArrowUp: [0, -1],
+  KeyS: [0, 1],
+  ArrowDown: [0, 1],
+  KeyA: [-1, 0],
+  ArrowLeft: [-1, 0],
+  KeyD: [1, 0],
+  ArrowRight: [1, 0],
+};
 
-    attach(target) {
-      if (input.attached || typeof window === 'undefined') return;
-      input.attached = true;
-      window.addEventListener('keydown', (e) => {
-        input.keys.add(e.code);
-        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
-          e.preventDefault();
+export function makeInput(canvas) {
+  const down = new Set();
+  const pressedEdge = new Set();
+  const mouse = { x: 0, y: 0, down: false };
+  let pad = null;
+  let padConnected = false;
+
+  function onKeyDown(e) {
+    if (!down.has(e.code)) pressedEdge.add(e.code);
+    down.add(e.code);
+    if (e.code === 'Space') e.preventDefault?.();
+  }
+
+  function onKeyUp(e) {
+    down.delete(e.code);
+  }
+
+  function onMouseMove(e) {
+    mouse.x = e.offsetX ?? e.clientX ?? 0;
+    mouse.y = e.offsetY ?? e.clientY ?? 0;
+  }
+
+  function onMouseDown(e) {
+    mouse.down = true;
+    onMouseMove(e);
+  }
+
+  function onMouseUp() {
+    mouse.down = false;
+  }
+
+  function onPadConnect(e) {
+    pad = e.gamepad;
+    padConnected = true;
+  }
+
+  function onPadDisconnect() {
+    pad = null;
+    padConnected = false;
+  }
+
+  const hasWindow = typeof window !== 'undefined';
+  const hasDoc = typeof document !== 'undefined';
+  if (hasWindow) {
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('gamepadconnected', onPadConnect);
+    window.addEventListener('gamepaddisconnected', onPadDisconnect);
+  }
+  if (hasDoc && canvas) {
+    canvas.addEventListener('mousemove', onMouseMove);
+    canvas.addEventListener('mousedown', onMouseDown);
+    canvas.addEventListener('mouseup', onMouseUp);
+  }
+
+  function isDown(code) {
+    return down.has(code);
+  }
+
+  // Edge-triggered: true once per physical press, then consumed.
+  function pressed(code) {
+    if (pressedEdge.has(code)) {
+      pressedEdge.delete(code);
+      return true;
+    }
+    return false;
+  }
+
+  // Test/driver hook: fake a key press without a browser.
+  function fakeDown(code) {
+    if (!down.has(code)) pressedEdge.add(code);
+    down.add(code);
+  }
+
+  function fakeUp(code) {
+    down.delete(code);
+  }
+
+  function pollPad() {
+    padConnected = false;
+    try {
+      const pads = globalThis.navigator?.getGamepads?.();
+      if (pads) {
+        for (const p of pads) {
+          if (p && p.connected) {
+            pad = p;
+            padConnected = true;
+            break;
+          }
         }
-      });
-      window.addEventListener('keyup', (e) => input.keys.delete(e.code));
-      window.addEventListener('blur', () => input.keys.clear());
-      if (target) {
-        target.addEventListener('mousemove', (e) => {
-          const r = target.getBoundingClientRect();
-          input.mouse.x = e.clientX - r.left;
-          input.mouse.y = e.clientY - r.top;
-        });
-        target.addEventListener('mousedown', () => {
-          input.mouse.down = true;
-          input.mouse.clicked = true;
-        });
-        target.addEventListener('mouseup', () => {
-          input.mouse.down = false;
-        });
       }
-    },
+    } catch {
+      pad = null;
+    }
+  }
 
-    isDown(code) {
-      return input.keys.has(code);
-    },
+  // Movement vector in [-1, 1]^2. Gamepad stick wins over keys.
+  function axis() {
+    let x = 0;
+    let y = 0;
+    for (const [code, [dx, dy]] of Object.entries(MOVE_KEYS)) {
+      if (down.has(code)) {
+        x += dx;
+        y += dy;
+      }
+    }
+    if (padConnected && pad) {
+      const sx = pad.axes?.[0] ?? 0;
+      const sy = pad.axes?.[1] ?? 0;
+      if (Math.abs(sx) > 0.18 || Math.abs(sy) > 0.18) {
+        x = sx;
+        y = sy;
+      }
+      if (pad.buttons?.[0]?.pressed) fakeDown('KeyE');
+      if (pad.buttons?.[9]?.pressed) fakeDown('Enter');
+    }
+    const len = Math.hypot(x, y);
+    if (len > 1) {
+      x /= len;
+      y /= len;
+    }
+    return { x, y };
+  }
 
-    // Movement vector from keys or the left stick. y is down-positive.
-    moveVector() {
-      let x = 0;
-      let y = 0;
-      if (input.isDown('KeyA') || input.isDown('ArrowLeft')) x -= 1;
-      if (input.isDown('KeyD') || input.isDown('ArrowRight')) x += 1;
-      if (input.isDown('KeyW') || input.isDown('ArrowUp')) y -= 1;
-      if (input.isDown('KeyS') || input.isDown('ArrowDown')) y += 1;
-      if (input.pad.connected) {
-        x += input.pad.steer;
-        y += input.pad.throttle;
-      }
-      return { x, y };
-    },
+  // Called once per frame: refresh the pad, clear consumed edges.
+  function update() {
+    pollPad();
+  }
 
-    // True on the frame the E key (or pad A) is pressed.
-    actionPressed() {
-      if (input.pad.action) {
-        input.pad.action = false;
-        return true;
-      }
-      if (input.keys.has('KeyE')) {
-        input.keys.delete('KeyE');
-        return true;
-      }
-      return false;
-    },
+  function detach() {
+    if (hasWindow) {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('gamepadconnected', onPadConnect);
+      window.removeEventListener('gamepaddisconnected', onPadDisconnect);
+    }
+    if (hasDoc && canvas) {
+      canvas.removeEventListener('mousemove', onMouseMove);
+      canvas.removeEventListener('mousedown', onMouseDown);
+      canvas.removeEventListener('mouseup', onMouseUp);
+    }
+  }
 
-    honkPressed() {
-      if (input.keys.has('KeyH')) {
-        input.keys.delete('KeyH');
-        return true;
-      }
-      return false;
-    },
-
-    // Poll the gamepad every frame. Sticks drive movement, A is action.
-    poll() {
-      if (typeof navigator === 'undefined' || !navigator.getGamepads) return;
-      const pads = navigator.getGamepads();
-      let found = false;
-      for (const p of pads) {
-        if (!p || !p.connected) continue;
-        found = true;
-        const dead = (v) => (Math.abs(v) < 0.18 ? 0 : v);
-        input.pad.steer = dead(p.axes[0] || 0);
-        input.pad.throttle = dead(p.axes[1] || 0);
-        input.pad.brake = (p.buttons[6] && p.buttons[6].pressed) || false;
-        if (p.buttons[0] && p.buttons[0].pressed) input.pad.action = true;
-        break;
-      }
-      input.pad.connected = found;
-      if (!found) {
-        input.pad.steer = 0;
-        input.pad.throttle = 0;
-      }
+  return {
+    mouse,
+    isDown,
+    pressed,
+    fakeDown,
+    fakeUp,
+    axis,
+    update,
+    detach,
+    get padConnected() {
+      return padConnected;
     },
   };
-  return input;
 }

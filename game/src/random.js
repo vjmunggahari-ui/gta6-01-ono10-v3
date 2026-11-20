@@ -1,7 +1,9 @@
-// Solmar Bay — deterministic random helpers.
-// FNV-1a string hash + mulberry32 PRNG. Same seed => same sequence.
+// Seeded deterministic randomness for Solmar Bay.
+// Every run with the same seed produces the exact same city.
 
-export function hashSeed(text) {
+// FNV-1a style string/number hash -> unsigned 32-bit seed.
+export function hashSeed(seed) {
+  const text = String(seed);
   let h = 2166136261 >>> 0;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);
@@ -10,9 +12,10 @@ export function hashSeed(text) {
   return h >>> 0;
 }
 
+// mulberry32: small, fast, deterministic PRNG.
 export function mulberry32(seed) {
   let a = seed >>> 0;
-  return function () {
+  return function next() {
     a |= 0;
     a = (a + 0x6d2b79f5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
@@ -21,25 +24,19 @@ export function mulberry32(seed) {
   };
 }
 
-// Small RNG object used by the world builder.
+// makeRng(seed) -> { next(), int(min, max), pick(list), range(min, max) }
 export function makeRng(seed) {
-  const next = mulberry32(seed >>> 0);
+  const next = mulberry32(hashSeed(seed));
   return {
-    next() {
-      return next();
-    },
-    float(min, max) {
-      return min + next() * (max - min);
-    },
-    // Inclusive integer in [min, max].
+    next,
     int(min, max) {
       return min + Math.floor(next() * (max - min + 1));
     },
+    range(min, max) {
+      return min + next() * (max - min);
+    },
     pick(list) {
       return list[Math.floor(next() * list.length)];
-    },
-    chance(p) {
-      return next() < p;
     },
   };
 }

@@ -1,72 +1,50 @@
-# Solmar Bay — Make GTA 6
+# Solmar Bay — an open-world crime game
 
 [![Bounty](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01)
 [![Rank](https://make.fun/badge/gta6-01/vjmunggahari-ui/gta6-01-ono10-v3/rank.svg)](https://make.fun/bounty/gta6-01)
 [![Reward](https://make.fun/badge/gta6-01/vjmunggahari-ui/gta6-01-ono10-v3/reward.svg)](https://make.fun/bounty/gta6-01)
 
-**Solmar Bay** is an open-world crime game that plays offline in a desktop
-browser from static files under `game/` — plain Canvas 2D, no network, no
-three.js. Drive, steal cars, dodge the Solmar PD, and run seven crew jobs
-across a sun-soaked 3200×2400 coastal city, on foot or behind the wheel.
+Solmar Bay is an open-world crime game: drive, steal cars, dodge the Solmar
+PD, and run seven crew jobs across a sun-soaked 3200x2400 city — on foot or
+behind the wheel. Built by an AI agent for make.fun's "Make GTA 6" bounty,
+$1,666 in USDC.
 
 ## The city
 
-A seeded, deterministic 3200×2400 city: 20 buildings, 103 trees, 30 lamps,
-19 benches, 6 boats, 10 parked cars, and 2 plaza fountains — plus the
-24-storey SOLMAR Tower landmark with its gold sign and beacon ring. Neon
-signs on the buildings, drifting cloud shadows, long low-sun shadows. The
-south edge is water: the marina, where the last job ends.
+A coastal city of its own, drawn in plain Canvas 2D with no libraries and no
+network: 20 buildings with neon signs, 103 trees, 30 lamps, 19 benches,
+6 boats in the bay, 10 parked cars, a plaza with two fountains, and the
+24-storey Solmar Tower with its gold SOLMAR sign and pulsing beacon ring.
+Cloud shadows drift across the streets under a low sun.
 
-## How to play
+## Playing
 
-- **Move:** WASD / arrow keys (gamepad left stick works too). **Mouse** for
-  menus and clicks.
-- **Enter / exit / steal a car:** E (tries nearby cars, then farther ones).
-- **Honk:** H. **Music on/off:** M. **Start a job:** keys 1–7.
-- **Wanted level:** 0–5 stars. Cruisers chase you; at 4+ stars they PIT —
-  a cruiser pulls alongside at matching speed and shoves your car sideways.
-  At 3+ stars the PD sets roadblocks. Lose heat by staying clear of
-  cruisers and the stars drop, one at a time.
+Open `game/index.html` in a desktop browser, or run `node
+--experimental-strip-types serve.ts` and visit http://localhost:8080.
 
-## The seven jobs
+- **Move:** WASD or arrow keys (on foot or driving), mouse to look around.
+- **Cars:** walk up to a parked car and press **E** to steal it; press **E**
+  again to get out.
+- **Jobs:** press **1–7** to start a crew job. The HUD tracks
+  "Jobs done n/7" and your cash.
+- **Heat:** stealing cars and hitting pedestrians raises your wanted level,
+  0–5 stars. Police cruisers chase you; at 4+ stars they PIT your car, and
+  at 3+ stars they set up roadblocks. Lay low and the heat decays.
+- **Missions:** First Fare ($150), Hot Package ($300), Bay Getaway ($500),
+  Dockside Debt ($420), The Last Ferry ($650), The Tower Job ($800), and the
+  Marina Heist ($900) — fuel the speedboat under 2 stars and run for the pier.
+- **Sound:** a 16-step music sequencer, **M** to mute, **H** to honk.
+  Gamepad supported, polled every frame.
 
-| Job | Payout |
-| --- | --- |
-| m1 First Fare | $150 |
-| m2 Hot Package | $300 |
-| m3 Bay Getaway | $500 |
-| m4 Dockside Debt | $420 |
-| m5 The Last Ferry | $650 |
-| m6 The Tower Job | $800 |
-| m7 Marina Heist | $900 |
+## Entry program
 
-The Marina Heist is a three-stage run: reach the speedboat, hold 5 seconds
-to fuel it while staying under 2 stars, lose the heat, then run for the pier.
+`main.ts` (Node 22) copies `game/` and `screenshots/` into the output
+directory and writes `dossier.json` there with the kit's `buildDossier`.
+It writes to `MAKEFUN_OUTPUT_DIR` when set, otherwise to `<repo>/output`.
 
 ## Screenshots
 
-1. **Cover** — the plaza, its fountains, and the SOLMAR Tower under a low
-   sun, HUD complete.
-2. **Roam** — on foot by the avenue, traffic passing, pedestrians on the
-   sidewalk.
-3. **Mission** — First Fare in progress: the fare is in the car, one star
-   on the tail, drop it at Solmar Tower.
-4. **Chase** — four stars: three cruisers on the tail, a roadblock ahead.
-
-## Run it
-
-Open `game/index.html` in a desktop browser, or serve the folder:
-
-```sh
-node --experimental-strip-types serve.ts 8080
-# then open http://127.0.0.1:8080/
-```
-
-## Build the dossier
-
-```sh
-node main.ts
-# writes output/dossier.json (game/ + screenshots/ copied to output/)
-```
-
-Built by an AI agent for make.fun's "Make GTA 6" bounty, $1,666 in USDC.
+1. **Cover** — the city, the tower, the bay.
+2. **Roam** — cruising the avenues of Solmar Bay.
+3. **Mission** — Job in progress, Bay Getaway.
+4. **Chase** — four stars and nowhere to hide.

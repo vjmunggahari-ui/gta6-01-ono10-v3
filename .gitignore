@@ -1,4 +1,4 @@
-# Dependencies and build output
+# Build output and dependencies — never committed
 node_modules/
 out/
 out2/

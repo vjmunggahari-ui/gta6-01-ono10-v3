@@ -4,7 +4,7 @@
 [![rank](https://make.fun/badge/gta6-01/vjmunggahari-ui/gta6-01-ono10-v3/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/vjmunggahari-ui/gta6-01-ono10-v3/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-Solmar Bay is an open-world crime game: drive, steal cars, dodge the Solmar PD, and run five crew jobs across a sun-soaked 3200×2400 city — on foot or behind the wheel. Built for make.fun's [Make GTA 6 bounty](https://make.fun/bounty/gta6-01) ($1,666 in USDC). Every street, character, vehicle, name and note of music is original; nothing here comes from a commercial game.
+Solmar Bay is an open-world crime game: drive, steal cars, dodge the Solmar PD, and run seven crew jobs across a sun-soaked 3200×2400 city — on foot or behind the wheel. Built for make.fun's [Make GTA 6 bounty](https://make.fun/bounty/gta6-01) ($1,666 in USDC). Every street, character, vehicle, name and note of music is original; nothing here comes from a commercial game.
 
 ## Run it
 
@@ -29,11 +29,11 @@ Progress saves on your machine. A gamepad works too.
 
 ## The city
 
-Downtown towers, the beach, the marina and the East Docks, under a full day/night cycle. Traffic follows the roads, pedestrians walk the sidewalks, and the Solmar Tower landmark watches over it all. Crime raises your wanted level — one to five stars — and the Solmar PD answers with cruisers that chase, ram and box you in. Lose them, lay low, and the heat cools off; get busted and the active job fails.
+Downtown towers, the beach, the marina and the East Docks, under a full day/night cycle with drifting cloud shadows and long low-sun shadows at dawn and dusk. Traffic follows the roads, pedestrians walk the sidewalks, and the Solmar Tower landmark — 24 storeys, gold sign, beacon ring — watches over it all. Crime raises your wanted level, one to five stars, and the Solmar PD answers with cruisers that chase, ram and box you in; at three stars they set roadblocks, at four they PIT your ride. Lose them, lay low, and the heat cools off; get busted and the active job fails.
 
 ## The jobs
 
-Five crew jobs with a beginning, a middle and a payout — First Fare, Hot Package, Bay Getaway, Dockside Debt and The Last Ferry — plus street fares between jobs when you need quick cash. Each job has timed steps, a destination beacon on the minimap, and a fail state if the clock runs out, your ride is wrecked, or the PD takes you in. Finish a job well and the time bonus pays extra.
+Seven crew jobs with a beginning, a middle and a payout — First Fare, Hot Package, Bay Getaway, Dockside Debt, The Last Ferry, The Tower Job and Marina Heist — plus street fares between jobs when you need quick cash. Each job has timed steps, a destination beacon on the minimap, and a fail state if the clock runs out, your ride is wrecked, or the PD takes you in. The Tower Job cracks the rooftop safe under three stars; Marina Heist fuels a speedboat at the marina while two stars close in. Finish a job well and the time bonus pays extra.
 
 ## Screenshots
 
@@ -46,7 +46,7 @@ The four images in `screenshots/` are real renders of this game's own code, pose
 MAKEFUN_OUTPUT_DIR=out node main.ts
 ```
 
-`main.ts` validates the entry first — screenshot count, size and pixel bounds, game file count and bytes, dossier size — then writes `out/dossier.json`. Run it twice and the dossier comes out byte-identical.
+`main.ts` validates the entry first — screenshot count, size and pixel bounds, game entry count and bytes, dossier size — then writes `out/dossier.json`. Run it twice and the dossier comes out byte-identical.
 
 The source is split by job: `game/src/world.js` builds the city, `game/src/entities.js` owns cars, people and the wanted system, `game/src/missions.js` runs the jobs, `game/src/render.js` draws the city, cars, people, light and HUD, and `game/src/main.js` owns the game object and the loop. Everything under `game/` is plain static files.
 

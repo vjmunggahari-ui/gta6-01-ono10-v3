@@ -1,9 +1,20 @@
 # Dependencies and build output
 node_modules/
 out/
+out2/
 dist/
 build/
 .cache/
+
+# Datasets and downloaded data — never committed
+data/
+datasets/
+*.csv
+*.jsonl
+
+# Entry artifacts
+transcripts.tar.gz
+.makefun/recordings.json
 
 # Secrets and local config — never committed
 .env

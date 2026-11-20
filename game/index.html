@@ -1,104 +1,18 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0c1018">
-<title>Solmar Bay — an open-city crime story</title>
-<meta name="description" content="Solmar Bay: an open-city crime game. Steal cars, run crew jobs, outrun the Solmar PD — in your browser, no install.">
+<title>Solmar Bay</title>
 <style>
-  /* Page chrome around the game canvas. The canvas itself is 1280x720;
-     the frame scales it to the window while keeping 16:9. */
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body {
-    margin: 0;
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    background: #0c1018;
-    color: #f4f1e6;
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
-  .masthead, .controls, .frame { width: min(100vw - 24px, 1280px); }
-  .masthead {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  .masthead h1 {
-    margin: 0;
-    font-size: 22px;
-    letter-spacing: 0.14em;
-    color: #ffd23f;
-  }
-  .masthead p { margin: 0; font-size: 13px; color: #c9c4b2; }
-  .frame {
-    aspect-ratio: 16 / 9;
-    overflow: hidden;
-    background: #0c1018;
-    border: 1px solid #2a2f38;
-    border-radius: 10px;
-  }
-  canvas { display: block; width: 100%; height: 100%; }
-  .controls {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 18px;
-    font-size: 13px;
-    color: #c9c4b2;
-  }
-  .controls b { color: #f4f1e6; font-weight: 600; }
-  .controls kbd {
-    padding: 0 5px;
-    font: 12px/1.5 ui-monospace, monospace;
-    color: #ffd23f;
-    background: #20242e;
-    border: 1px solid #3a4050;
-    border-bottom-width: 2px;
-    border-radius: 4px;
-  }
-  @media (max-width: 640px) {
-    .masthead h1 { font-size: 17px; }
-    .masthead p { display: none; }
-  }
-  /* Shot mode (?shot=…): hide the chrome so the capture is the game
-     itself, edge to edge, at exactly 1280x720. */
-  body.shot-mode { padding: 0; gap: 0; }
-  body.shot-mode .masthead, body.shot-mode .controls { display: none; }
-  body.shot-mode .frame {
-    width: 100vw;
-    height: 100vh;
-    border: none;
-    border-radius: 0;
-  }
+  html, body { margin: 0; padding: 0; background: #101418; overflow: hidden; }
+  #game { display: block; width: 1280px; height: 720px; }
 </style>
 </head>
 <body>
-<header class="masthead">
-  <h1>SOLMAR BAY</h1>
-  <p>An open-city crime story — Jax Marlowe owes the crew.</p>
-</header>
-<div class="frame">
-  <canvas id="game" width="1280" height="720"></canvas>
-</div>
-<noscript><p style="color:#ff8a5c">Solmar Bay needs JavaScript to play.</p></noscript>
-<footer class="controls">
-  <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk &amp; drive</span>
-  <span><kbd>E</kbd> steal / exit car</span>
-  <span><kbd>F</kbd> punch</span>
-  <span><kbd>M</kbd> next job</span>
-  <span><kbd>Esc</kbd> pause</span>
-  <span><kbd>H</kbd> mute</span>
-  <span><kbd>Shift</kbd> run</span>
-  <span><kbd>Space</kbd> handbrake</span>
-  <span>Progress saves on this machine. Gamepad supported.</span>
-</footer>
-<script type="module" src="./src/main.js"></script>
+<canvas id="game" width="1280" height="720"></canvas>
+<script type="module">
+  import { createGame } from './src/main.js';
+  createGame(document.getElementById('game'));
+</script>
 </body>
 </html>

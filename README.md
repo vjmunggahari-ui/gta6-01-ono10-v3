@@ -1,61 +1,77 @@
-# gta6-01-ono10-v3
+# Solmar Bay — an open-world crime game
 
-[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![rank](https://make.fun/badge/gta6-01/vjmunggahari-ui/gta6-01-ono10-v3/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![reward](https://make.fun/badge/gta6-01/vjmunggahari-ui/gta6-01-ono10-v3/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![bounty](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01)
+[![rank](https://make.fun/badge/gta6-01/vjmunggahari-ui/gta6-01-ono10-v3/rank.svg)](https://make.fun/bounty/gta6-01)
+[![reward](https://make.fun/badge/gta6-01/vjmunggahari-ui/gta6-01-ono10-v3/reward.svg)](https://make.fun/bounty/gta6-01)
 
-Solmar Bay is an open-world crime game: drive, steal cars, dodge the Solmar PD, and run seven crew jobs across a sun-soaked 3200x2400 city — on foot or behind the wheel. Built by an AI agent for make.fun's "Make GTA 6" bounty, $1,666 in USDC.
+**Solmar Bay** is an open-world crime game that plays offline in a desktop
+browser, built by an AI agent for make.fun's "Make GTA 6" bounty
+($1,666 in USDC). No network, no build step, plain Canvas 2D — open
+`game/index.html` and drive.
 
 ## The city
 
-Solmar Bay is a sun-soaked coastal city built for driving and running: a
-downtown tower district around the 24-storey Solmar Tower, an old-town fountain
-square, a marina with speedboats, and a beach road that runs the whole south
-edge. Twenty buildings, a hundred trees, street lamps, benches, parked cars,
-and two plaza fountains fill a 3200x2400 map. Clouds drift overhead and the low
-sun throws long shadows across the streets as the day slides toward dusk.
+A sun-soaked modern coastal city, 3200×2400, built from a single
+deterministic seed: 20 buildings, 103 trees, 30 lamps, 19 benches, 6 boats,
+10 parked cars, and a plaza with two fountains. The 24-storey Solmar Tower
+stands at the heart of it with its gold SOLMAR sign and beacon ring; neon
+signs light the avenues, cloud shadows drift across the streets, and the
+low sun throws long shadows over the bay. The marina sits to the south,
+where the water starts.
 
-## Play
+## What you do
 
-You are Jax, fresh out and already in debt to the wrong people. Walk the
-streets, punch your way out of trouble, steal any parked car, and outrun the
-Solmar Police Department as your wanted level climbs from one star to five.
+- **On foot and behind the wheel.** Walk the streets, steal parked cars,
+  enter and exit vehicles. Traffic swerves and honks around you;
+  pedestrians walk the sidewalks.
+- **Seven crew jobs.** The HUD tracks "Jobs done 0/7": First Fare ($150),
+  Hot Package ($300), Bay Getaway ($500), Dockside Debt ($420), The Last
+  Ferry ($650), The Tower Job ($800), and the Marina Heist ($900) — reach
+  the speedboat, fuel it for five seconds under two stars, lose the heat,
+  and run for the pier.
+- **Wanted level 0–5.** Steal a car or hit a job and the Solmar PD comes
+  for you. Cruisers chase; at three stars they set roadblocks; at four
+  stars and above they PIT you — a cruiser pulls alongside at matching
+  speed and shoves your car sideways. Lose them for 25 seconds with no
+  cruiser close and the heat drops a star.
+- **Feel.** A HUD with a live minimap, wanted stars, cash, and the mission
+  tracker; a 16-step music sequencer; gamepad support, polled every frame.
 
-Seven crew jobs pay your way out:
+## Controls
 
-1. **First Fare** — a taxi run across town, paid on delivery.
-2. **Hot Package** — move a package through downtown before the timer dies.
-3. **Bay Getaway** — lose a two-star tail along the beach road.
-4. **Dockside Debt** — collect at the docks, then disappear.
-5. **The Last Ferry** — catch the ferry window or swim for it.
-6. **The Tower Job** — reach Solmar Tower plaza, hold six seconds to crack the
-   rooftop safe under three stars, lose the heat, and vanish down Solmar Beach
-   for $800.
-7. **Marina Heist** — reach the speedboat at the marina, hold five seconds to
-   fuel it while two stars close in, lose the heat, and run for the pier
-   for $900.
-
-The PD escalates with you: roadblocks go up at three stars, and at four stars
-and above a cruiser that pulls alongside will PIT your ride — a sideways shove
-that spins the car and cuts your speed. Traffic swerves and honks, pedestrians
-scatter, and the HUD keeps your minimap, wanted stars, cash, and job progress
-in view. Keyboard and mouse, or a gamepad — no network, no install, plain
-Canvas 2D straight from static files.
+| Key | Action |
+| --- | --- |
+| W / A / S / D or arrows | Drive / walk, steer |
+| E | Enter or exit a car (steal a parked car) |
+| Mouse | Look around (camera follows the player) |
+| Gamepad | Left stick to drive, buttons to act |
 
 ## Run it
 
 ```sh
-python3 -m http.server 8000
-# open http://localhost:8000/game/
+# Play locally (any static server works)
+node --experimental-strip-types serve.ts   # http://localhost:8080/game/index.html
+
+# Build the judge dossier (Node 22, no install)
+node main.ts                                # writes /output/dossier.json
 ```
 
-Or build the graded dossier with the entrypoint:
+## Layout
 
-```sh
-node main.ts out
-# writes out/dossier.json, out/game/, out/screenshots/
-```
+- `game/` — the whole game as static files: `index.html` plus
+  `src/{audio,config,entities,input,main,missions,random,render,shots,world}.js`
+- `main.ts` — entry program: copies `game/` and `screenshots/` to
+  `/output` and writes `/output/dossier.json` via `vendor/makefun-game.ts`
+- `shots.json` — the four screenshot definitions
+- `screenshots/` — 1-cover, 2-roam, 3-mission, 4-chase (1280×720)
+- `vendor/makefun-game.ts` — the make.fun kit's dossier library, copied
+  verbatim from the competition kit
 
----
+## Screenshots
 
-<sub>Entered on [make.fun](https://make.fun/?ref=&utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>
+1. **Cover** — the city at golden hour, Solmar Tower on the skyline.
+2. **Roam** — on foot and by car through the avenues.
+3. **Mission** — First Fare in progress: the fare is picked up at the
+   plaza, one star on the board, and the banner reads "Drop the fare at
+   Solmar Tower" — $150 when it lands, Jobs done 0/7 until then.
+4. **Chase** — four stars, cruisers closing in, roadblocks ahead.

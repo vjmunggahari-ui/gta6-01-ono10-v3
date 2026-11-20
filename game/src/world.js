@@ -1,398 +1,264 @@
-// Solmar Bay (v6) — the city itself: districts, blocks, buildings, trees,
-// boats, parked cars, lamps, benches, fountains and piers.
-//
-// One job: build the same city from the same seed, every time. Two plaza
-// blocks carry fountains instead of buildings (an Old Town square and a
-// Downtown square, with benches and trees around the water); the tallest
-// downtown tower is flagged as the Solmar Tower landmark; some tall
-// downtown facades carry neon signs. Collisions run against a coarse
-// grid index, and a body whose centre lands inside a building is pushed
-// out along the shallowest side.
-//
-// The draw order below is the city's fingerprint: the same seed must
-// produce the same city, so the random draws happen in exactly the same
-// order as the reference build. Do not reorder draws inside a block,
-// a boat, or a parked car.
+// Solmar Bay — deterministic city generation from the seed.
+// Imports config + random only. Every placement decision is made here, so the
+// renderer and the gameplay code never have to guess where things are.
+import { WORLD_W, WORLD_H, SEED, WATERLINE, ROADS, TOWER, FOUNTAINS, PLAZA, COLORS } from './config.js';
+import { makeRng } from './random.js';
 
-import { BEACH_TOP, COLORS, DISTRICTS, MARINA_LEFT, PIER, PLACES, ROADS_X, ROADS_Y, ROAD_HALF, SEA_TOP, WORLD } from './config.js';
-import { int, mulberry32, pick, range } from './random.js';
-
-// Building face colours by district palette.
-const FACES = {
-  city: ['#7d9bb5', '#8fae8b', '#a08bb5', '#c9a86a', '#6a8a9b'],
-  brick: ['#c97b4a', '#b56a6a', '#d99a5b', '#a86a4a'],
-  suburb: ['#d9c9a0', '#b5c9a0', '#c9b5a0', '#e8e6da'],
-  industrial: ['#8a8f98', '#6a7078', '#7a6a5a', '#5a6a7a'],
-  marina: ['#e8e6da', '#a0c9d9', '#d9d9c9'],
-  sand: ['#d9c27a'],
-};
-const PAINT = ['#d94f3d', '#3d7dd9', '#e8c33a', '#4ad97b', '#e8e6da', '#7a5fd9', '#e07b39'];
-const CELL = 256;
-
-// Blocks that become open plazas instead of building plots, as
-// [column, row] in the road grid. Old Town square (0, 1) and Downtown
-// square (1, 1) each get a fountain at the block centre.
-const SQUARES = [
-  { ix: 0, iy: 1 },
-  { ix: 1, iy: 1 },
-];
-
-export function districtAt(x, y) {
-  for (const d of DISTRICTS) {
-    const inside = x >= d.x0 && x < d.x1 && y >= d.y0 && y < d.y1;
-    if (inside) return d;
+// Point-in-road test. Roads run the full map in their direction; the
+// waterfront cuts the vertical avenues at WATERLINE.
+export function onRoad(x, y) {
+  const half = ROADS.width / 2;
+  for (const vx of ROADS.vertical) {
+    if (Math.abs(x - vx) < half && y < WATERLINE + half) return true;
   }
-  return DISTRICTS[DISTRICTS.length - 1];
-}
-
-function cellId(cx, cy) {
-  return `${cx},${cy}`;
-}
-
-function isSquare(ix, iy) {
-  return SQUARES.some((p) => p.ix === ix && p.iy === iy);
-}
-
-// Index buildings into coarse grid cells so collideBuildings only tests
-// the handful of buildings near a body instead of all of them.
-function buildIndex(buildings) {
-  const grid = new Map();
-  buildings.forEach((b, i) => {
-    const x0 = Math.floor(b.x / CELL);
-    const x1 = Math.floor((b.x + b.w) / CELL);
-    const y0 = Math.floor(b.y / CELL);
-    const y1 = Math.floor((b.y + b.h) / CELL);
-    for (let cx = x0; cx <= x1; cx += 1) {
-      for (let cy = y0; cy <= y1; cy += 1) {
-        const key = cellId(cx, cy);
-        if (!grid.has(key)) grid.set(key, []);
-        grid.get(key).push(i);
-      }
-    }
-  });
-  return grid;
-}
-
-// A plaza block: one fountain at the centre, a ring of eight trees and
-// three benches around it, no buildings.
-function makeSquare(rng, x0, x1, y0, y1, out) {
-  const cx = Math.round((x0 + x1) / 2);
-  const cy = Math.round((y0 + y1) / 2);
-  out.fountains.push({ x: cx, y: cy, r: 42 });
-  for (let t = 0; t < 8; t += 1) {
-    const ang = (t / 8) * Math.PI * 2 + range(rng, -0.2, 0.2);
-    const dist = range(rng, 70, 120);
-    out.trees.push({
-      x: Math.round(cx + Math.cos(ang) * dist),
-      y: Math.round(cy + Math.sin(ang) * dist),
-      r: Math.round(range(rng, 10, 16)),
-    });
-  }
-  for (let b = 0; b < 3; b += 1) {
-    out.benches.push({
-      x: Math.round(cx + range(rng, -90, 90)),
-      y: Math.round(cy + range(rng, -90, 90)),
-      angle: rng() < 0.5 ? 0 : Math.PI / 2,
-    });
-  }
-}
-
-// One building on a block: size, position, storeys, a possible neon sign,
-// a face colour and a roof. Draws happen in a fixed order (width, height,
-// x, y, storeys, neon, colour, roof) so the city is reproducible.
-function makeBuilding(rng, x0, x1, y0, y1, slot, slots, district, palette) {
-  const w = range(rng, 90, Math.min(220, (x1 - x0) / slots - 20));
-  const h = range(rng, 80, Math.min(200, y1 - y0 - 20));
-  const x = slot === 0 ? x0 + range(rng, 0, 20) : x1 - w - range(rng, 0, 20);
-  const y = y0 + range(rng, 0, Math.max(1, y1 - y0 - h));
-  let stories;
-  if (district.id === 'downtown') stories = int(rng, 6, 18);
-  else if (district.id === 'oldtown') stories = int(rng, 2, 4);
-  else stories = int(rng, 1, 3);
-  // Tall downtown facades sometimes carry a neon sign after dark.
-  let neon = null;
-  if (district.id === 'downtown' && stories >= 6 && rng() < 0.45) {
-    neon = pick(rng, COLORS.neon);
-  }
-  const face = pick(rng, palette);
-  const roofRoll = rng();
-  const roof = roofRoll < 0.18 ? 'pool' : rng() < 0.3 ? 'garden' : 'flat';
-  return {
-    x: Math.round(x),
-    y: Math.round(y),
-    w: Math.round(w),
-    h: Math.round(h),
-    color: face,
-    roof,
-    district: district.id,
-    stories,
-    neon,
-    landmark: false,
-  };
-}
-
-// A built-up block: one or two buildings, trees along the edges, and a
-// bench or two where people linger.
-function fillBlock(rng, x0, x1, y0, y1, out) {
-  const district = districtAt((x0 + x1) / 2, (y0 + y1) / 2);
-  const palette = FACES[district.palette] || FACES.city;
-  const slots = district.density >= 2 && rng() < 0.6 ? 2 : 1;
-  for (let n = 0; n < slots; n += 1) {
-    out.buildings.push(makeBuilding(rng, x0, x1, y0, y1, n, slots, district, palette));
-  }
-  const treeCount = 3 + Math.floor(rng() * 4);
-  for (let t = 0; t < treeCount; t += 1) {
-    out.trees.push({
-      x: Math.round(range(rng, x0, x1)),
-      y: Math.round(range(rng, y0, y1)),
-      r: Math.round(range(rng, 9, 16)),
-    });
-  }
-  if (rng() < 0.5) {
-    out.benches.push({
-      x: Math.round(range(rng, x0, x1)),
-      y: Math.round(range(rng, y0, y1)),
-      angle: rng() < 0.5 ? 0 : Math.PI / 2,
-    });
-  }
-}
-
-// The Solmar Tower: the tallest downtown building, raised to 24 storeys
-// and flagged so the renderer gives it a beacon and a rooftop sign.
-function crownTower(buildings) {
-  let tower = null;
-  for (const b of buildings) {
-    if (b.district !== 'downtown') continue;
-    if (!tower || b.stories > tower.stories) tower = b;
-  }
-  if (tower) {
-    tower.stories = 24;
-    tower.landmark = true;
-    tower.neon = null;
-  }
-}
-
-// Street lamps at every intersection, on alternating corners.
-function setLamps(out) {
-  for (const rx of ROADS_X) {
-    for (const ry of ROADS_Y) {
-      const n = out.lamps.length;
-      out.lamps.push({
-        x: rx + (ROAD_HALF + 8) * (n % 2 === 0 ? 1 : -1),
-        y: ry + (ROAD_HALF + 8) * (n % 3 === 0 ? 1 : -1),
-      });
-    }
-  }
-}
-
-// Boats moored in slips in the marina, east of the last road.
-function moorBoats(rng, out) {
-  for (let i = 0; i < 6; i += 1) {
-    out.boats.push({
-      x: Math.round(range(rng, MARINA_LEFT + 60, WORLD.w - 80)),
-      y: Math.round(range(rng, 200, BEACH_TOP - 200)),
-      angle: (rng() - 0.5) * 0.4,
-      color: pick(rng, PAINT),
-      slip: i,
-    });
-  }
-}
-
-// Parked cars along the roads, waiting to be borrowed.
-function parkCars(rng, out) {
-  for (let i = 0; i < 10; i += 1) {
-    const vertical = rng() < 0.5;
-    const road = pick(rng, vertical ? ROADS_X : ROADS_Y);
-    const along = range(rng, 200, vertical ? WORLD.h - 200 : WORLD.w - 200);
-    const side = rng() < 0.5 ? -ROAD_HALF - 16 : ROAD_HALF + 16;
-    const angle = vertical
-      ? (rng() < 0.5 ? -Math.PI / 2 : Math.PI / 2)
-      : (rng() < 0.5 ? 0 : Math.PI);
-    out.parked.push({
-      x: vertical ? Math.round(road + side) : Math.round(along),
-      y: vertical ? Math.round(along) : Math.round(road + side),
-      angle,
-      color: pick(rng, PAINT),
-    });
-  }
-}
-
-export function buildWorld(seed) {
-  const rng = mulberry32(seed);
-  const out = {
-    buildings: [],
-    trees: [],
-    lamps: [],
-    benches: [],
-    boats: [],
-    parked: [],
-    fountains: [],
-  };
-  // One or two buildings per block, kept off the roads, the beach and
-  // the marina.
-  for (let ix = 0; ix < ROADS_X.length - 1; ix += 1) {
-    for (let iy = 0; iy < ROADS_Y.length - 1; iy += 1) {
-      const x0 = ROADS_X[ix] + ROAD_HALF + 14;
-      const x1 = ROADS_X[ix + 1] - ROAD_HALF - 14;
-      const y0 = ROADS_Y[iy] + ROAD_HALF + 14;
-      const y1 = ROADS_Y[iy + 1] - ROAD_HALF - 14;
-      if (x1 <= x0 + 60 || y1 <= y0 + 60) continue;
-      if (x0 > MARINA_LEFT - 100) continue;
-      if (y0 > BEACH_TOP - 100) continue;
-      if (isSquare(ix, iy)) {
-        makeSquare(rng, x0, x1, y0, y1, out);
-        continue;
-      }
-      fillBlock(rng, x0, x1, y0, y1, out);
-    }
-  }
-  crownTower(out.buildings);
-  setLamps(out);
-  moorBoats(rng, out);
-  parkCars(rng, out);
-  return {
-    buildings: out.buildings,
-    trees: out.trees,
-    lamps: out.lamps,
-    benches: out.benches,
-    boats: out.boats,
-    parked: out.parked,
-    fountains: out.fountains,
-    places: { ...PLACES },
-    pier: { ...PIER },
-    grid: buildIndex(out.buildings),
-  };
-}
-
-// The road helpers take either a body ({x, y}) or plain (x, y) coordinates.
-function asPoint(a, b) {
-  if (a !== null && typeof a === 'object') return { x: a.x, y: a.y };
-  return { x: a, y: b };
-}
-
-export function isOnRoad(a, b) {
-  const { x, y } = asPoint(a, b);
-  for (const rx of ROADS_X) {
-    if (Math.abs(x - rx) <= ROAD_HALF) return true;
-  }
-  for (const ry of ROADS_Y) {
-    if (Math.abs(y - ry) <= ROAD_HALF) return true;
+  for (const hy of ROADS.horizontal) {
+    if (Math.abs(y - hy) < half) return true;
   }
   return false;
 }
 
-export function isOnBeach(x, y) {
-  return y >= BEACH_TOP && y < SEA_TOP;
+export function inWater(x, y) {
+  return y >= WATERLINE;
 }
 
-export function isInSea(x, y) {
-  return y >= SEA_TOP;
-}
-
-export function roadAngleAt(a, b) {
-  const { x, y } = asPoint(a, b);
-  // The angle of the nearest road centreline: vertical roads run north-south.
-  let best = Infinity;
-  let angle = 0;
-  for (const rx of ROADS_X) {
-    const d = Math.abs(x - rx);
-    if (d < best) { best = d; angle = Math.PI / 2; }
+// Does the axis-aligned rect (centre x,y, size w,h) touch a road?
+// `pad` grows the rect so props keep clear of the carriageway.
+function rectHitsRoad(x, y, w, h, pad) {
+  const half = ROADS.width / 2 + pad;
+  for (const vx of ROADS.vertical) {
+    if (x + w / 2 > vx - half && x - w / 2 < vx + half && y + h / 2 > 0 && y - h / 2 < WATERLINE + half) return true;
   }
-  for (const ry of ROADS_Y) {
-    const d = Math.abs(y - ry);
-    if (d < best) { best = d; angle = 0; }
-  }
-  return angle;
-}
-
-export function snapToRoad(a, b) {
-  const { x, y } = asPoint(a, b);
-  // The nearest point on a road centreline to (x, y).
-  let best = Infinity;
-  let point = { x, y };
-  for (const rx of ROADS_X) {
-    const d = Math.abs(x - rx);
-    if (d < best) { best = d; point = { x: rx, y }; }
-  }
-  for (const ry of ROADS_Y) {
-    const d = Math.abs(y - ry);
-    if (d < best) { best = d; point = { x, y: ry }; }
-  }
-  return point;
-}
-
-// A random point on a random road, for spawns that must start on tarmac.
-export function randomRoadPoint(rng) {
-  if (rng() < 0.5) {
-    return { x: pick(rng, ROADS_X), y: range(rng, 120, WORLD.h - 320) };
-  }
-  return { x: range(rng, 120, WORLD.w - 120), y: pick(rng, ROADS_Y) };
-}
-
-// The grid cells a body may touch: its own cell plus the eight around it,
-// so a body straddling a cell edge still tests the buildings next door.
-function nearCells(world, x, y) {
-  const cx = Math.floor(x / CELL);
-  const cy = Math.floor(y / CELL);
-  const out = [];
-  for (let ox = -1; ox <= 1; ox += 1) {
-    for (let oy = -1; oy <= 1; oy += 1) {
-      const cell = world.grid.get(cellId(cx + ox, cy + oy));
-      if (cell) out.push(...cell);
-    }
-  }
-  return out;
-}
-
-// True when (x, y) sits inside any building. Used by spawns and missions.
-export function pointInBuilding(world, x, y) {
-  for (const i of nearCells(world, x, y)) {
-    const b = world.buildings[i];
-    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return true;
+  for (const hy of ROADS.horizontal) {
+    if (y + h / 2 > hy - half && y - h / 2 < hy + half) return true;
   }
   return false;
 }
 
-// Pushes a body out of any building it overlaps; true when it pushed.
-// Only the grid cells around the body are tested now, not the whole city.
-// A body whose centre is inside a building is pushed out along the
-// shallowest side.
-export function collideBuildings(world, body) {
-  if (!Number.isFinite(body.x) || !Number.isFinite(body.y)) return false;
-  const r = body.radius || 12;
-  let hit = false;
-  for (const i of nearCells(world, body.x, body.y)) {
-    const b = world.buildings[i];
-    const cx = Math.max(b.x, Math.min(body.x, b.x + b.w));
-    const cy = Math.max(b.y, Math.min(body.y, b.y + b.h));
-    const dx = body.x - cx;
-    const dy = body.y - cy;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < 0.001) {
-      const left = body.x - b.x;
-      const right = b.x + b.w - body.x;
-      const top = body.y - b.y;
-      const bottom = b.y + b.h - body.y;
-      const min = Math.min(left, right, top, bottom);
-      if (min === left) body.x = b.x - r;
-      else if (min === right) body.x = b.x + b.w + r;
-      else if (min === top) body.y = b.y - r;
-      else body.y = b.y + b.h + r;
-      hit = true;
-      continue;
-    }
-    if (d2 >= r * r) continue;
-    const d = Math.sqrt(d2);
-    body.x = cx + (dx / d) * r;
-    body.y = cy + (dy / d) * r;
-    hit = true;
-  }
-  return hit;
+function rectsOverlap(a, b, gap) {
+  return (
+    a.x - a.w / 2 - gap < b.x + b.w / 2 &&
+    a.x + a.w / 2 + gap > b.x - b.w / 2 &&
+    a.y - a.h / 2 - gap < b.y + b.h / 2 &&
+    a.y + a.h / 2 + gap > b.y - b.h / 2
+  );
 }
 
-export function clampToWorld(body, margin) {
-  if (!Number.isFinite(body.x) || !Number.isFinite(body.y)) return;
-  const m = margin || 0;
-  body.x = Math.max(m, Math.min(WORLD.w - m, body.x));
-  body.y = Math.max(m, Math.min(WORLD.h - m, body.y));
+function insidePlaza(x, y, pad) {
+  const dx = x - PLAZA.x;
+  const dy = y - PLAZA.y;
+  return dx * dx + dy * dy < (PLAZA.r + pad) * (PLAZA.r + pad);
+}
+
+// The building the point stands on, or null. Tower counts as a building.
+export function buildingAt(world, x, y) {
+  for (const b of world.buildings) {
+    if (x >= b.x - b.w / 2 && x <= b.x + b.w / 2 && y >= b.y - b.h / 2 && y <= b.y + b.h / 2) return b;
+  }
+  return null;
+}
+
+export function buildWorld() {
+  const rng = makeRng(SEED);
+
+  // ---- Buildings: tower fixed first, then 19 seeded blocks. ----
+  const buildings = [
+    {
+      x: TOWER.x,
+      y: TOWER.y,
+      w: TOWER.w,
+      h: TOWER.h,
+      storeys: TOWER.storeys,
+      facade: COLORS.tower,
+      neon: true,
+      neonColor: COLORS.neon[2],
+      landmark: true,
+      name: TOWER.name,
+    },
+  ];
+  let tries = 0;
+  while (buildings.length < 20 && tries < 20000) {
+    tries++;
+    const w = rng.float(70, 150);
+    const h = rng.float(60, 120);
+    const x = rng.float(90, WORLD_W - 90);
+    const y = rng.float(90, WATERLINE - 160);
+    if (rectHitsRoad(x, y, w, h, 14)) continue;
+    if (insidePlaza(x, y, Math.max(w, h) / 2 + 8)) continue;
+    if (buildings.some((b) => rectsOverlap({ x, y, w, h }, b, 18))) continue;
+    buildings.push({
+      x,
+      y,
+      w,
+      h,
+      storeys: rng.int(3, 12),
+      facade: rng.pick(COLORS.facades),
+      neon: rng.chance(0.45),
+      neonColor: rng.pick(COLORS.neon),
+      landmark: false,
+      name: null,
+    });
+  }
+  // Deterministic sweep fallback: walk a coarse grid until the count is met.
+  if (buildings.length < 20) {
+    outer: for (let gy = 130; gy < WATERLINE - 160; gy += 170) {
+      for (let gx = 130; gx < WORLD_W - 90; gx += 180) {
+        if (buildings.length >= 20) break outer;
+        const w = 110;
+        const h = 80;
+        if (rectHitsRoad(gx, gy, w, h, 14)) continue;
+        if (insidePlaza(gx, gy, 70)) continue;
+        if (buildings.some((b) => rectsOverlap({ x: gx, y: gy, w, h }, b, 18))) continue;
+        buildings.push({
+          x: gx,
+          y: gy,
+          w,
+          h,
+          storeys: 6,
+          facade: COLORS.facades[buildings.length % COLORS.facades.length],
+          neon: false,
+          neonColor: COLORS.neon[0],
+          landmark: false,
+          name: null,
+        });
+      }
+    }
+  }
+
+  // ---- Trees: scattered on grass, never on road/water/building/plaza. ----
+  const trees = [];
+  tries = 0;
+  while (trees.length < 103 && tries < 20000) {
+    tries++;
+    const x = rng.float(30, WORLD_W - 30);
+    const y = rng.float(30, WATERLINE - 30);
+    if (onRoad(x, y)) continue;
+    if (insidePlaza(x, y, 4)) continue;
+    if (buildingAt({ buildings }, x, y)) continue;
+    trees.push({ x, y, r: rng.float(11, 17), kind: rng.int(0, 2) });
+  }
+  if (trees.length < 103) {
+    outer2: for (let gy = 60; gy < WATERLINE - 30; gy += 55) {
+      for (let gx = 60; gx < WORLD_W - 30; gx += 55) {
+        if (trees.length >= 103) break outer2;
+        if (onRoad(gx, gy)) continue;
+        if (insidePlaza(gx, gy, 4)) continue;
+        if (buildingAt({ buildings }, gx, gy)) continue;
+        trees.push({ x: gx, y: gy, r: 13, kind: 1 });
+      }
+    }
+  }
+
+  // ---- Lamps: on sidewalk edges beside a road, clear of crossings. ----
+  const lamps = [];
+  tries = 0;
+  while (lamps.length < 30 && tries < 20000) {
+    tries++;
+    let x;
+    let y;
+    if (rng.chance(0.5)) {
+      const vx = rng.pick(ROADS.vertical);
+      x = vx + (rng.chance(0.5) ? 1 : -1) * (ROADS.width / 2 + 10);
+      y = rng.float(40, WATERLINE - 40);
+    } else {
+      const hy = rng.pick(ROADS.horizontal);
+      y = hy + (rng.chance(0.5) ? 1 : -1) * (ROADS.width / 2 + 10);
+      x = rng.float(40, WORLD_W - 40);
+    }
+    if (onRoad(x, y)) continue;
+    if (inWater(x, y)) continue;
+    if (buildingAt({ buildings }, x, y)) continue;
+    if (lamps.some((l) => Math.abs(l.x - x) < 24 && Math.abs(l.y - y) < 24)) continue;
+    lamps.push({ x, y });
+  }
+
+  // ---- Benches: a ring in the plaza, the rest along sidewalks. ----
+  // The plaza straddles the avenue at x=850, so ring seats are nudged
+  // around the circle until they sit clear of the carriageway.
+  const benches = [];
+  for (let i = 0; i < 8; i++) {
+    let a = (i / 8) * Math.PI * 2 + 0.35;
+    let bx = PLAZA.x + Math.cos(a) * (PLAZA.r - 26);
+    let by = PLAZA.y + Math.sin(a) * (PLAZA.r - 26);
+    let guard = 0;
+    while (onRoad(bx, by) && guard < 40) {
+      guard++;
+      a += 0.09;
+      bx = PLAZA.x + Math.cos(a) * (PLAZA.r - 26);
+      by = PLAZA.y + Math.sin(a) * (PLAZA.r - 26);
+    }
+    benches.push({ x: bx, y: by, rot: a + Math.PI / 2 });
+  }
+  tries = 0;
+  while (benches.length < 19 && tries < 20000) {
+    tries++;
+    let x;
+    let y;
+    if (rng.chance(0.5)) {
+      const vx = rng.pick(ROADS.vertical);
+      x = vx + (rng.chance(0.5) ? 1 : -1) * (ROADS.width / 2 + 22);
+      y = rng.float(40, WATERLINE - 40);
+    } else {
+      const hy = rng.pick(ROADS.horizontal);
+      y = hy + (rng.chance(0.5) ? 1 : -1) * (ROADS.width / 2 + 22);
+      x = rng.float(40, WORLD_W - 40);
+    }
+    if (onRoad(x, y)) continue;
+    if (inWater(x, y)) continue;
+    if (buildingAt({ buildings }, x, y)) continue;
+    if (benches.some((b) => Math.abs(b.x - x) < 30 && Math.abs(b.y - y) < 30)) continue;
+    benches.push({ x, y, rot: rng.chance(0.5) ? 0 : Math.PI / 2 });
+  }
+
+  // ---- Boats: drifting in the water strip at the south edge. ----
+  const boats = [];
+  for (let i = 0; i < 6; i++) {
+    boats.push({
+      x: rng.float(120, WORLD_W - 120),
+      y: rng.float(WATERLINE + 55, WORLD_H - 70),
+      len: rng.float(64, 112),
+      hue: rng.pick(['#e8e8e8', '#d95f4b', '#4b8ad9', '#e8c84b']),
+      bob: rng.float(0, Math.PI * 2),
+    });
+  }
+
+  // ---- Parked cars: nose-to-kerb along road edges. ----
+  const parkedCars = [];
+  tries = 0;
+  while (parkedCars.length < 10 && tries < 20000) {
+    tries++;
+    let x;
+    let y;
+    let angle;
+    if (rng.chance(0.5)) {
+      const vx = rng.pick(ROADS.vertical);
+      x = vx + (rng.chance(0.5) ? 1 : -1) * (ROADS.width / 2 + 16);
+      y = rng.float(60, WATERLINE - 60);
+      angle = Math.PI / 2;
+    } else {
+      const hy = rng.pick(ROADS.horizontal);
+      y = hy + (rng.chance(0.5) ? 1 : -1) * (ROADS.width / 2 + 16);
+      x = rng.float(60, WORLD_W - 60);
+      angle = 0;
+    }
+    if (onRoad(x, y)) continue;
+    if (inWater(x, y)) continue;
+    if (buildingAt({ buildings }, x, y)) continue;
+    if (parkedCars.some((c) => Math.abs(c.x - x) < 46 && Math.abs(c.y - y) < 46)) continue;
+    parkedCars.push({ x, y, angle, color: rng.pick(COLORS.facades) });
+  }
+
+  const fountains = FOUNTAINS.map((f) => ({ x: f.x, y: f.y, r: 34 }));
+
+  return {
+    seed: SEED,
+    width: WORLD_W,
+    height: WORLD_H,
+    buildings,
+    trees,
+    lamps,
+    benches,
+    boats,
+    parkedCars,
+    fountains,
+  };
 }

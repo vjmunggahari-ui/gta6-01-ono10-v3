@@ -1,24 +1,3 @@
-# Build + run outputs
-out/
-out1/
-out2/
-dossier.json
-*.log
-
-# Dependencies
 node_modules/
-
-# Local tooling state
-.makefun/record-*.log
-
-# OS artefacts
+/output
 .DS_Store
-Thumbs.db
-
-# Editor artefacts
-.vscode/
-.idea/
-*.swp
-
-# Bundles (parent-side only, never committed)
-transcripts.tar.gz

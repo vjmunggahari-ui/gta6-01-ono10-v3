@@ -1,219 +1,58 @@
-// Solmar Bay (v6) — every number the game agrees on, in one place.
-//
-// One job: hold the constants so the modules never disagree about the
-// city. The values below are the game's balance; changing one changes
-// how the city plays, so a tuning change is a deliberate decision, not
-// a cleanup. v6 adds the cloud-shadow and landmark tuning on top of the
-// earlier set (per-star wanted table, mission timers, day/night cycle,
-// named districts, camera model).
+// Solmar Bay — world constants. Plain data only, no imports.
+// All numbers are design decisions for a sun-soaked coastal city:
+// a road grid, a waterfront at the south edge, a central plaza.
+export const WORLD_W = 3200;
+export const WORLD_H = 2400;
+export const SEED = 424242;
+export const VIEW_W = 1280;
+export const VIEW_H = 720;
 
-// View and world size, fixed step, save slot, subsystem seeds.
-export const VIEW = {
-  w: 1280,
-  h: 720,
-};
-export const WORLD = {
-  w: 3200,
-  h: 2400,
-};
-export const STEP = 1 / 60;
-export const SAVE_KEY = 'solmarbay-save-v2';
-export const SEEDS = {
-  world: 1337,
-  traffic: 9001,
-  peds: 4242,
+// South of this y the map is water (marina, boats, pier).
+export const WATERLINE = 2100;
+
+// Road grid: 6 north-south avenues, 5 east-west streets, 96px wide.
+export const ROADS = {
+  width: 96,
+  vertical: [350, 850, 1350, 1850, 2350, 2850],
+  horizontal: [350, 750, 1150, 1550, 1950],
 };
 
-// --- sky: clouds and low sun ----------------------------------------------
-// Cloud shadows drift across the city in daylight; the sun sits low near
-// dawn and dusk, so buildings throw long shadows then and none at noon.
-export const CLOUDS = {
-  count: 6,
-  driftPerSec: 14,
-  minR: 180,
-  maxR: 320,
-  alpha: 0.10,
-};
-export const SUN = {
-  maxLenPerStorey: 14,
-  lowSunDark: 0.55,
-};
+// The landmark tower. x/y is its centre; w/h its footprint.
+export const TOWER = { x: 1377, y: 978, w: 155, h: 85, storeys: 24, name: 'SOLMAR' };
 
-// --- day / night ----------------------------------------------------------
-// One full day lasts DAY.lengthSec seconds of play. Phase 0 = midnight.
-export const DAY = {
-  lengthSec: 240,
-  dawn: 0.24,
-  noon: 0.5,
-  dusk: 0.76,
-  nightTint: 'rgba(10, 14, 42, 0.34)',
-  duskTint: 'rgba(64, 32, 16, 0.18)',
-};
+// Two plaza fountains; the plaza itself is centred between them.
+export const FOUNTAINS = [{ x: 570, y: 990 }, { x: 1070, y: 990 }];
+export const PLAZA = { x: 820, y: 990, r: 150 };
 
-// --- road network ---------------------------------------------------------
-// Six north-south roads, five east-west. ROAD_HALF is the half-width of
-// the tarmac; LANE_OFFSET is the right-hand lane centre from the
-// centreline. The beach and the sea run along the south edge; the marina
-// and its pier sit in the south-east corner.
-export const ROADS_X = [320, 820, 1320, 1820, 2320, 2820];
-export const ROADS_Y = [300, 760, 1220, 1680, 2140];
-export const ROAD_HALF = 34;
-export const LANE_OFFSET = 17;
-export const BEACH_TOP = 2140;
-export const SEA_TOP = 2240;
-export const MARINA_LEFT = 2900;
-export const PIER = {
-  x: 2960,
-  y: 2140,
-  w: 120,
-  h: 190,
-};
+// Low afternoon sun: shadows fall long toward the south-west.
+export const SUN = { angle: 2.45, length: 46, color: 'rgba(40,24,8,0.28)' };
 
-// --- districts ------------------------------------------------------------
-// Each block of the city belongs to one district; the world builder picks
-// building palettes and density from the district under the block. The
-// seven districts tile the whole map with no gaps, so every lookup
-// finds one.
-export const DISTRICTS = [
-  { id: 'oldtown', name: 'Old Town', x0: 0, y0: 0, x1: 820, y1: 1220, palette: 'brick', density: 2 },
-  { id: 'downtown', name: 'Downtown', x0: 820, y0: 0, x1: 1820, y1: 1220, palette: 'city', density: 2 },
-  { id: 'hillside', name: 'Hillside', x0: 1820, y0: 0, x1: 3200, y1: 1220, palette: 'suburb', density: 1 },
-  { id: 'southside', name: 'Southside', x0: 0, y0: 1220, x1: 2320, y1: 2140, palette: 'suburb', density: 1 },
-  { id: 'docks', name: 'The Docks', x0: 2320, y0: 1220, x1: 2820, y1: 2140, palette: 'industrial', density: 1 },
-  { id: 'marina', name: 'Marina', x0: 2820, y0: 1220, x1: 3200, y1: 2140, palette: 'marina', density: 1 },
-  { id: 'beach', name: 'Beachfront', x0: 0, y0: 2140, x1: 3200, y1: 2400, palette: 'sand', density: 0 },
-];
+// Drifting cloud shadows that slide across the city.
+export const CLOUDS = { count: 8, speed: 7, minR: 90, maxR: 210 };
 
-// Named places the missions and spawns point at.
-export const PLACES = {
-  downtown: { x: 1320, y: 760, label: 'Downtown' },
-  marina: { x: 2980, y: 1220, label: 'Marina' },
-  docks: { x: 2920, y: 1680, label: 'The Docks' },
-  hospital: { x: 320, y: 1220, label: 'St. Anselm Hospital' },
-  safehouse: { x: 320, y: 300, label: "Jax's Safehouse" },
-  beach: { x: 1200, y: 2280, label: 'Solmar Beach' },
-};
-
-// --- palette --------------------------------------------------------------
 export const COLORS = {
-  grass: '#79a854',
-  grassDark: '#6d9c49',
-  road: '#333a45',
-  sidewalk: '#8a8f7a',
-  lane: '#e8e3c8',
-  sand: '#d9c27a',
-  sea: '#2e7fa8',
-  seaDeep: '#1d5a7d',
-  tree: '#4a7a3a',
-  treeDark: '#3a6130',
-  player: '#ffd23f',
-  accent: '#ffb02e',
-  hudBg: 'rgba(12, 16, 24, 0.78)',
-  hudText: '#f4f1e6',
-  danger: '#ff5c5c',
-  money: '#7ddb8a',
-  // Neon sign colours for downtown facades after dark.
-  neon: ['#ff2e88', '#2ee6ff', '#ffe14d', '#7dff5e'],
-};
-
-// --- player ---------------------------------------------------------------
-export const PLAYER = {
-  health: 100,
-  radius: 13,
-  walkSpeed: 175,
-  runSpeed: 285,
-  punchDamage: 25,
-  punchRange: 36,
-  punchArc: 1.1,
-  punchCooldown: 0.45,
-  enterRange: 52,
-};
-
-// --- cars -----------------------------------------------------------------
-export const CAR = {
-  maxSpeed: 560,
-  accel: 430,
-  brake: 780,
-  reverseAccel: 300,
-  maxReverse: 170,
-  turnRate: 2.7,
-  radius: 24,
-  health: 100,
-  crashDamageSpeed: 200,
-  crashDamage: 12,
-};
-
-// --- traffic & pedestrians ------------------------------------------------
-export const TRAFFIC_COUNT = 14;
-export const PED_COUNT = 26;
-export const TRAFFIC = {
-  cruiseMin: 150,
-  cruiseMax: 230,
-  followGap: 70,
-  waypointMin: 350,
-  waypointMax: 900,
-  turnChance: 0.35,
-};
-export const PED = {
-  walkMin: 45,
-  walkMax: 78,
-  fleeSpeed: 150,
-  panicRadius: 130,
-  punchPanicRadius: 60,
-  downTime: 2.5,
-  hitDownTime: 3,
-  idleChance: 0.2,
-};
-
-// --- wanted ---------------------------------------------------------------
-export const MAX_POLICE = 5;
-export const WANTED = {
-  max: 5,
-  decayPerSec: 0.25,
-  decayDelaySec: 6,
-  stealAdd: 1,
-  punchAdd: 1,
-  hitPedAdd: 1,
-  crashAdd: 0.2,
-  // Per-star police response: cruisers on the road, their top speed,
-  // ram damage.
-  levels: [
-    null,
-    { police: 1, speed: 470, ram: 8 },
-    { police: 2, speed: 500, ram: 10 },
-    { police: 3, speed: 520, ram: 12 },
-    { police: 4, speed: 545, ram: 14 },
-    { police: 5, speed: 570, ram: 16 },
-  ],
-};
-
-// --- police ---------------------------------------------------------------
-export const POLICE = {
-  spawnDistance: 650,
-  despawnDistance: 1100,
-  chaseTurn: 2.8,
-  ramRange: 34,
-  ramSpeed: 120,
-  ramDamagePerSec: 14,
-  sirenAtStars: 1,
-  giveUpDistance: 1400,
-};
-
-// --- missions -------------------------------------------------------------
-export const MISSIONS = {
-  fareTimeoutSec: 75,
-  jobTimeoutSec: 240,
-  farePayMin: 40,
-  farePayMax: 120,
-  jobPay: 350,
-};
-
-// --- camera, effects, economy --------------------------------------------
-export const SKID_MAX = 220;
-export const CAMERA = {
-  lookahead: 0.35,
-  smoothing: 6,
-};
-export const ECONOMY = {
-  startCash: 50,
+  grass: '#7fae5a',
+  grassDark: '#6d9c4c',
+  sand: '#e3d194',
+  water: '#2e7fa8',
+  waterDeep: '#1f5f86',
+  road: '#3c3f46',
+  roadLine: '#e8e4c8',
+  sidewalk: '#b9b3a4',
+  plaza: '#c9bfa5',
+  facades: ['#c96f4a', '#d9a441', '#7d9bb5', '#b56a7e', '#8a9a5b', '#a980c9', '#5b8a8a'],
+  glass: '#2c3e50',
+  glassLit: '#ffd97a',
+  neon: ['#ff5da2', '#37e0ff', '#ffe14d', '#7dff5e', '#ff7a3d'],
+  tower: '#8a6d3b',
+  towerGlass: '#3d5a74',
+  tree: '#3f7a37',
+  treeDark: '#2f6129',
+  trunk: '#6b4a2b',
+  lampGlow: '#ffe9a8',
+  bench: '#8a6a45',
+  fountain: '#4db2d8',
+  fountainDeep: '#2b7ea3',
+  cloud: 'rgba(20,30,10,0.10)',
+  shadow: 'rgba(30,18,6,0.30)',
 };
